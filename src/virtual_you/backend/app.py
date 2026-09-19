@@ -204,7 +204,8 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
         response.headers["Cache-Control"] = "no-store"
         if request.url.path == "/" or request.url.path.startswith("/static/"):
             response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+                "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; "
+                "media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
             )
         return response
 

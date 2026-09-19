@@ -21,6 +21,10 @@ root Dockerfile remain unchanged from phase 1.1 `ab3c90f`.
 
 ## Implemented
 
+- Browser Record/Stop, timer, playback preview and explicit transcription;
+  permission/device errors and upload fallback. Cancelling or stopping releases
+  microphone tracks. Capture stops at 2:59 or when the tab is hidden. Blob audio
+  preview is allowed by a narrowly scoped `media-src` security-policy directive.
 - Voice upload with bounded decoding (3 minutes / 8 MiB), local Whisper by
   default and optional ElevenLabs Scribe. Cloud processing is explicitly shown.
 - Redacted, editable transcript review before shared Member 1 normalization.
@@ -64,6 +68,37 @@ root Dockerfile remain unchanged from phase 1.1 `ab3c90f`.
   comparison confirms unchanged phase 1.1 ingestion. Temporary audio, screenshots,
   browser scripts and runtime databases are outside Git under `/tmp`.
 
+### Recorder follow-up verification
+
+- Re-ran the root suite (**220 passed**) and the six scoped Slack suites
+  (**60 passed**) after the recorder/security-header change; the same two
+  inherited deprecation warnings remain. Scoped Ruff and JavaScript syntax pass.
+- Chrome via existing Playwright at `http://127.0.0.1:8128`, isolated synthetic
+  data, 1280×900 and 390×844. Browser plugin not available. Correct URL/title,
+  meaningful page content, no error overlay or unexpected console errors; desktop,
+  mobile and pending-draft screenshots inspected, no horizontal overflow.
+- Native `MediaRecorder` captured a synthetic microphone feed, producing playable
+  WebM. Stop released the microphone and showed a preview with **no upload until
+  Transcribe**. Real local Whisper transcribed it; correction, normalization and
+  pending-draft generation passed. Pending delivery stayed disabled.
+- Cancellation, late microphone permission after cancellation, denied/missing/busy
+  microphone, unsupported browser fallback, empty capture, recorder failure,
+  construction/start failure, oversized audio, explicit same-ID network retry,
+  reopening an existing draft and protecting unsaved edits passed. Error cases
+  inject browser failures; the retry response uses a fixture. File-upload fallback
+  also passed with real local Whisper. No physical microphone was recorded.
+- Automatic 2:59 stopping used an accelerated browser clock; leaving-tab stopping
+  used a simulated visibility event. Both release tracks and preserve the preview.
+- The same **8.58-second browser WebM** transcribed successfully with the configured
+  live ElevenLabs Scribe adapter in **1.10 seconds** for one request, preserving
+  the blocker and unconfirmed deadline. The quota balance was not queried.
+- Restarted the user's port-8000 review backend with the preview security policy;
+  health, recorder asset and configured ElevenLabs status were checked. Text
+  generation stays demo/extractive and delivery stays simulated. Safari, physical
+  microphones, real mobile devices and in-app browser permission UI remain untested.
+- Browser scripts/results/screenshots and synthetic audio remain outside Git under
+  `/tmp/makenomistake-recorder-qa/`. No frontend dependency was added.
+
 ## Remaining live acceptance and limitations
 
 Live ElevenLabs transcription now passes the synthetic smoke test. Remaining
@@ -76,8 +111,13 @@ live text model and human acceptance from [MEMBER2_ACCEPTANCE.md](../MEMBER2_ACC
 
 The standing worker/startup service is reused, not deployed or proven available
 24/7. The Mac/host must stay awake and online. Docker builds were not run.
-Discord's shared outbound adapter remains available; Discord inbound events,
-spoken responses/realtime voice, an in-page microphone recorder, video and slides
-are not part of this change. Voice recordings are not persisted by this app;
+Discord's shared outbound adapter remains available; Discord inbound events and
+spoken responses/realtime voice are unimplemented. Video/slides remain paused by
+Leo. The in-page microphone recorder is now implemented. Voice recordings are not persisted by this app;
 Slack/cloud retention is controlled by those providers. No raw media, credentials,
 private persona samples or concept-video files are included in the PR.
+
+The [allocation audit](ALLOCATION_AUDIT.md) checks every Member 4 task and the
+earlier Member 2 handoff. It explicitly retains Discord incoming events,
+continuous hosting, live Slack acceptance and live-model persona quality as
+unfinished work. The port-8000 review server alone does not run the Slack worker.

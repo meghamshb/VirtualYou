@@ -1,7 +1,8 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-let apiKey = "", selected = null, busy = false;
+let apiKey = "", selected = null, busy = false, connected = false;
 let voiceNote = null, uploadId = null, cloudVoice = false, questionRequest = null;
+const recorder = new VoiceMemoRecorder(() => buttons());
 function notice(text) { $("notice").textContent = text; }
 async function api(path, body) {
   const response = await fetch("/api" + path, {
@@ -25,6 +26,9 @@ function buttons() {
   $("draft-text").disabled = busy;
   $("draft-text").readOnly = !editable;
   $("unsaved").textContent = dirty() ? "Unsaved edits. Save them before approving or delivering." : "";
+  recorder.setLocked(busy || !connected);
+  $("voice-file").disabled = busy || recorder.active || !connected;
+  $("voice-upload").querySelector("button").disabled = busy || recorder.active || !connected;
 }
 async function run(action) {
   if (busy) return;
@@ -102,7 +106,10 @@ async function show(draft) {
   buttons();
 }
 $("login").onsubmit = e => { e.preventDefault(); run(async () => {
-  apiKey = $("key").value.trim(); await load(); $("key").value = ""; notice("Connected. Check delivery mode before reviewing a draft.");
+  connected = false;
+  apiKey = $("key").value.trim(); await load(); connected = true; $("key").value = "";
+  if (recorder.supported && !recorder.active && !recorder.clip) recorder.message("Ready. Press Record and allow microphone access, or upload a file below.");
+  notice("Connected. Check delivery mode before reviewing a draft.");
 }); };
 $("logout").onclick = () => location.reload();
 $("refresh").onclick = () => run(async () => { await api("/refresh", {}); await load(); notice("Evidence refreshed. Existing draft text has not changed."); });
@@ -148,18 +155,46 @@ function openVoice(note) {
   }
 }
 $("voice-file").onchange = () => { uploadId = null; };
-$("voice-upload").onsubmit = e => { e.preventDefault(); run(async () => {
-  const file = $("voice-file").files[0];
-  if (!file || file.size > 8 * 1024 * 1024) throw new Error("Choose an audio file up to 8 MiB.");
-  uploadId ||= crypto.randomUUID();
-  notice(cloudVoice ? "Transcribing with ElevenLabs…" : "Transcribing locally… the first run may download model weights.");
-  const response = await fetch(`/api/voice?request_id=${uploadId}`, {
-    method: "POST", headers: {Authorization: "Bearer " + apiKey, "Content-Type": file.type || "application/octet-stream"}, body: file
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error?.message || "Transcription failed.");
-  await load(); openVoice(result); notice("Transcript ready. Check names, numbers, and negations before confirming.");
-}); };
+async function transcribeAudio(file, requestId) {
+  if (!connected) throw new Error("Connect to the backend first.");
+  if (!file || !file.size || file.size > 8 * 1024 * 1024) throw new Error("Choose a non-empty audio file up to 8 MiB.");
+  recorder.el("voice-playback").pause();
+  const progress = cloudVoice ? "Transcribing with ElevenLabs…" : "Transcribing locally… the first run may download model weights.";
+  recorder.message(progress); notice(progress);
+  try {
+    const response = await fetch(`/api/voice?request_id=${requestId}`, {
+      method: "POST", headers: {Authorization: "Bearer " + apiKey, "Content-Type": file.type || "application/octet-stream"}, body: file
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error?.message || "Transcription failed.");
+    await load();
+    if (result.status === "draft_ready") {
+      if (dirty() && !confirm("Discard unsaved draft edits and reopen this memo's draft?")) {
+        recorder.message("This memo already has a draft. Your current draft edits were kept.");
+        notice("Current draft edits kept.");
+        return;
+      }
+      $("voice-review").hidden = true;
+      await show(await api(`/drafts/${result.draft_id}`));
+      recorder.message("This memo already has a draft. Open Review selected draft below.");
+      notice("Existing voice draft loaded. Nothing sent.");
+      return;
+    }
+    openVoice(result);
+    const ready = "Transcript ready. Check names, numbers, and negations before confirming.";
+    recorder.message(ready); notice(ready);
+    $("voice-review").scrollIntoView({behavior: "smooth", block: "start"});
+  } catch (error) { recorder.message(error.message + " Your audio is still available to retry."); throw error; }
+}
+$("voice-upload").onsubmit = e => { e.preventDefault();
+  if (recorder.active) return;
+  run(() => { uploadId ||= crypto.randomUUID(); return transcribeAudio($("voice-file").files[0], uploadId); });
+};
+$("voice-transcribe").onclick = () => {
+  if (!recorder.clip || recorder.active) return;
+  const {blob, requestId} = recorder.clip;
+  run(() => transcribeAudio(blob, requestId));
+};
 $("voice-review").onsubmit = e => { e.preventDefault(); run(async () => {
   if (!voiceNote) return;
   if (dirty() && !confirm("Discard unsaved draft edits?")) return;

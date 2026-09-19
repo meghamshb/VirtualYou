@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Virtual You — Review</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Virtual You — Review</title><link rel="stylesheet" href="/static/style.css"><script src="/static/recorder.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <main>
   <h1>Virtual You</h1>
@@ -31,7 +31,19 @@
   <section><h2>Drafts</h2><button id="reload" type="button">Reload</button><div id="drafts"></div></section>
   <section><h2>Voice memo → draft</h2>
     <p id="voice-processing">Connect to see where transcription runs.</p>
-    <form id="voice-upload"><label>Recording (up to 3 minutes / 8 MiB)
+    <div id="voice-recorder" class="recorder" role="group" aria-label="Record a voice memo">
+      <div class="recorder-heading"><strong>Record a memo</strong><span id="voice-timer" role="timer" aria-label="Recording duration">0:00</span></div>
+      <p id="voice-status" role="status">Connect, then record a short update.</p>
+      <button id="voice-start" type="button" disabled>Record</button>
+      <button id="voice-stop" type="button" hidden>Stop recording</button>
+      <button id="voice-discard" type="button" hidden>Discard recording</button>
+      <div id="voice-preview" hidden>
+        <audio id="voice-playback" controls preload="metadata" aria-label="Preview your voice memo"></audio>
+        <button id="voice-transcribe" type="button" disabled>Transcribe this memo</button>
+      </div>
+      <small>Microphone audio stays in this tab until you choose Transcribe. Recording stops just before 3 minutes, or when you leave this tab.</small>
+    </div>
+    <form id="voice-upload"><label>Or upload an audio file (up to 3 minutes / 8 MiB)
       <input id="voice-file" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav,.webm" required></label>
       <button>Transcribe recording</button></form>
     <div id="voice-notes"></div>

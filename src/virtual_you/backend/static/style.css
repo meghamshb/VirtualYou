@@ -12,3 +12,11 @@ small { display: block; margin-top: .25rem; }
 #warnings, #unsaved { font-size: .9rem; }
 #drafts button { display: block; text-align: left; width: 100%; }
 details { margin-top: 1rem; }
+.recorder { border: 1px solid #888; border-radius: .65rem; padding: 1rem; margin: 1rem 0; }
+.recorder-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+#voice-timer { font-variant-numeric: tabular-nums; }
+#voice-status { min-height: 1.5em; }
+.recorder[data-state="recording"] { border-color: #bd3535; }
+.recorder[data-state="recording"] #voice-timer { color: #bd3535; font-weight: 700; }
+#voice-start:not(:disabled) { background: #b42828; color: white; border: 1px solid #b42828; border-radius: .3rem; }
+#voice-playback { display: block; width: 100%; margin: .8rem 0; }

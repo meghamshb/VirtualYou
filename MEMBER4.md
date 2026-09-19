@@ -57,8 +57,17 @@ persistent model cache for local Whisper if repeated weight downloads are unwant
 1. Open the backend review page and connect with its owner key. Create or choose
    a recipient profile first. `virtual-you-server seed-demo` can supply synthetic
    personas and activity for a local demo; delivery defaults to simulation.
-2. Upload a voice memo, at most **3 minutes / 8 MiB**. WAV, MP3, M4A, OGG/Opus,
-   WebM and other formats supported by the installed decoder are accepted.
+2. Press **Record**, allow microphone access, speak, then **Stop recording**.
+   Preview the audio and select **Transcribe this memo**. Capture stays in tab
+   memory until that explicit upload; no transcript or draft is created by Stop.
+   The timer stops recording at 2:59 (a buffer below the backend's 3-minute cap),
+   or when leaving the tab. Stop/cancel releases the microphone. Discard removes
+   the preview, and Record again asks before replacing it. Refresh discards audio.
+   Microphone capture needs a supporting browser and HTTPS or localhost; permission
+   denial, a missing/busy microphone or an unsupported browser leaves file upload
+   available. Chrome was tested; physical microphone and Safari checks remain.
+   Alternatively upload a memo of at most **3 minutes / 8 MiB**. WAV, MP3, M4A,
+   OGG/Opus, WebM and other formats supported by the decoder are accepted.
 3. Correct the transcript, especially names, numbers and negations. Choose its
    project, recipient and destination. Before confirmation it is not indexed.
 4. Confirm to run Member 1's normalizer and create a pending Member 3 draft.
@@ -70,8 +79,9 @@ persistent model cache for local Whisper if repeated weight downloads are unwant
 Repeated upload/confirmation IDs do not create duplicate activity or drafts.
 If text generation fails after confirmation, reopen the note and retry its saved
 transcript, recipient and destination. To change a confirmed memo, start a new
-memo; an earlier pending draft can be rejected. No TTS, cloned speaking voice,
-realtime conversation or in-page microphone recorder is included in this version.
+memo; an earlier pending draft can be rejected. A network failure keeps the
+recording available for an explicit retry with the same upload ID. No TTS,
+cloned speaking voice or realtime conversation is included in this version.
 
 ## Slack flow
 
@@ -136,6 +146,9 @@ this change implements **Slack inbound events only**. Discord gateway listening
 and realtime voice remain follow-up work, not completed features.
 
 ## Validation and remaining acceptance
+
+The full task-by-task [allocation audit](docs/ALLOCATION_AUDIT.md) distinguishes
+implemented paths from unfinished live/hosting/Discord and persona acceptance.
 
 See [docs/STATUS.md](docs/STATUS.md) for exact current checks. Tests use synthetic
 activity and fake Slack/cloud transports. A real local Whisper transcription and
