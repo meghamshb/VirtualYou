@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -71,7 +72,8 @@ async def _run(args):
     from virtual_you.backend.soul import profile_from_soul, write_private
     from virtual_you.backend.store import Store
 
-    load_dotenv()
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        load_dotenv()
     settings = Settings.from_env()
     if args.data_dir:
         settings.data_dir = args.data_dir
