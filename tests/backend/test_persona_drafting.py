@@ -52,7 +52,8 @@ def test_two_personas_change_style_without_changing_factual_report(client, recor
         "links",
         "blockers",
     }
-    assert formal["report"]["approach"]["citations"] == []  # private reasoning was not available
+    assert formal["report"]["approach"]["citations"]  # phase 1.1 records public assistant approach summaries
+    assert "Approach:" in formal["report"]["approach"]["text"]
     assert "No blockers" not in formal["text"]
     assert "modified: src/payments/callback.py" in formal["text"]
     assert "FileOperation" not in formal["text"]

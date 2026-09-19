@@ -56,7 +56,7 @@ class RetrievalRequest(Contract):
     query: str = Field(default="", max_length=1000)
     session_ids: list[str] = Field(default_factory=list, max_length=20)
     project_ids: Optional[list[str]] = Field(default=None, max_length=100)
-    sources: Optional[list[Literal["claude", "cursor", "voice"]]] = None
+    sources: Optional[list[Literal["claude", "cursor", "codex", "voice", "git"]]] = None
     since: Optional[datetime] = None
     until: Optional[datetime] = None
     limit: int = Field(default=5, ge=1, le=10)
@@ -171,3 +171,9 @@ class ReconcileDelivery(RevisionRequest):
         if self.outcome == "confirmed_delivered" and not self.message_id:
             raise ValueError("A verified provider message ID is required")
         return self
+
+
+class ConversationalReply(Contract):
+    # Each paragraph carries its own source support; unknowns have no citations.
+    paragraphs: list[ReportSection] = Field(min_length=1, max_length=5)
+    search_query: str = Field(default="", max_length=300)

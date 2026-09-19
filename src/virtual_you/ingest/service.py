@@ -4,21 +4,25 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Sequence, Union
 from uuid import uuid4
 
 from virtual_you.contracts.activity import ActivityRecord, SourceKind
 from virtual_you.ingest.checkpoint import IncrementalJsonlReader
 from virtual_you.ingest.claude import parse_claude_file, parse_claude_jsonl
+from virtual_you.ingest.codex import parse_codex_file, parse_codex_jsonl_text
 from virtual_you.ingest.cursor import (
+    discover_cursor_source,
     parse_cursor_jsonl_text,
     parse_cursor_source,
 )
+from virtual_you.ingest.env_secrets import discover_env_secrets
 from virtual_you.ingest.errors import IngestionError, IngestionErrorCode
 from virtual_you.ingest.normalize import normalize_events
 from virtual_you.ingest.redact import assert_safe_serialized, redact_value
 from virtual_you.ingest.store import ActivityRecordRepository
 from virtual_you.ingest.voice import VoiceTranscriptAdapter
+from virtual_you.ingest.workspace import GIT_ROOT_ENV, overlay_git_state
 
 
 PathLike = Union[str, Path]
@@ -33,12 +37,29 @@ class IngestionService:
         *,
         data_directory: Optional[PathLike] = None,
         now: Optional[Callable[[], datetime]] = None,
+        env_search_root: Optional[PathLike] = None,
+        env_secrets: Optional[Sequence[str]] = None,
+        workspace_root: Optional[PathLike] = None,
+        latest_work_only: bool = True,
+        apply_git_overlay: bool = True,
     ) -> None:
         configured_root = data_directory or os.environ.get("VIRTUAL_YOU_DATA_DIR")
         root = Path(configured_root or Path.home() / ".virtual-you")
         self._root = root
+        self._latest_work_only = latest_work_only
+        self._apply_git_overlay = apply_git_overlay
         self._repository = repository or ActivityRecordRepository(root / "activities")
         self._now = now or (lambda: datetime.now(timezone.utc))
+        if workspace_root is not None:
+            self._workspace_root = Path(workspace_root)
+        else:
+            configured = os.environ.get(GIT_ROOT_ENV, "").strip()
+            self._workspace_root = Path(configured) if configured else Path.cwd()
+        self._env_secrets = (
+            tuple(secret for secret in env_secrets if secret)
+            if env_secrets is not None
+            else discover_env_secrets(env_search_root)
+        )
 
     def ingest(
         self,
@@ -60,11 +81,14 @@ class IngestionService:
                 IngestionErrorCode.SOURCE_NOT_FOUND,
                 "Activity source was not found.",
             )
+        if source_kind == SourceKind.CURSOR:
+            source_path = discover_cursor_source(source_path)
 
         if source_kind == SourceKind.CLAUDE:
             raw = normalize_events(
                 parse_claude_file(source_path),
                 source=source_kind.value,
+                latest_work_only=self._latest_work_only,
                 default_session_id=source_path.stem,
                 fallback_timestamp=self._file_timestamp(source_path),
             )
@@ -72,6 +96,15 @@ class IngestionService:
             raw = normalize_events(
                 parse_cursor_source(source_path),
                 source=source_kind.value,
+                latest_work_only=self._latest_work_only,
+                default_session_id=source_path.stem,
+                fallback_timestamp=self._file_timestamp(source_path),
+            )
+        elif source_kind == SourceKind.CODEX:
+            raw = normalize_events(
+                parse_codex_file(source_path),
+                source=source_kind.value,
+                latest_work_only=self._latest_work_only,
                 default_session_id=source_path.stem,
                 fallback_timestamp=self._file_timestamp(source_path),
             )
@@ -79,6 +112,7 @@ class IngestionService:
             raw = self._voice_mapping(source_path.read_text(encoding="utf-8"))
         else:
             raise AssertionError("unreachable source kind")
+        raw["source_path"] = str(source_path.resolve())
         return self._finalize(raw)
 
     def ingest_transcript(
@@ -91,12 +125,21 @@ class IngestionService:
             raw = normalize_events(
                 parse_claude_jsonl(text),
                 source=source_kind.value,
+                latest_work_only=self._latest_work_only,
                 fallback_timestamp=self._now(),
             )
         elif source_kind == SourceKind.CURSOR:
             raw = normalize_events(
                 parse_cursor_jsonl_text(text),
                 source=source_kind.value,
+                latest_work_only=self._latest_work_only,
+                fallback_timestamp=self._now(),
+            )
+        elif source_kind == SourceKind.CODEX:
+            raw = normalize_events(
+                parse_codex_jsonl_text(text),
+                source=source_kind.value,
+                latest_work_only=self._latest_work_only,
                 fallback_timestamp=self._now(),
             )
         elif source_kind == SourceKind.VOICE:
@@ -120,6 +163,8 @@ class IngestionService:
                 "Voice transcripts are not append-only JSONL sources.",
             )
         source_path = Path(path).expanduser()
+        if source_kind == SourceKind.CURSOR:
+            source_path = discover_cursor_source(source_path)
         checkpoint_name = "{}-{}.json".format(
             source_kind.value,
             source_path.name.replace("/", "_"),
@@ -137,14 +182,20 @@ class IngestionService:
         )
         if source_kind == SourceKind.CLAUDE:
             events = parse_claude_jsonl(text)
-        else:
+        elif source_kind == SourceKind.CURSOR:
             events = parse_cursor_jsonl_text(text)
+        elif source_kind == SourceKind.CODEX:
+            events = parse_codex_jsonl_text(text)
+        else:
+            raise AssertionError("unreachable source kind")
         raw = normalize_events(
             events,
             source=source_kind.value,
+                latest_work_only=self._latest_work_only,
             default_session_id=source_path.stem,
             fallback_timestamp=self._file_timestamp(source_path),
         )
+        raw["source_path"] = str(source_path.resolve())
         return self._finalize(raw, merge_existing=True)
 
     def latest_activity(self) -> Optional[ActivityRecord]:
@@ -184,7 +235,9 @@ class IngestionService:
         *,
         merge_existing: bool = False,
     ) -> ActivityRecord:
-        redacted = redact_value(raw)
+        if self._apply_git_overlay:
+            raw = overlay_git_state(raw, self._workspace_root)
+        redacted = redact_value(raw, extra_secrets=self._env_secrets)
         redacted["schema_version"] = "1.0"
         redacted["redacted"] = True
         record = ActivityRecord.model_validate(redacted)
@@ -197,7 +250,7 @@ class IngestionService:
             existing = self._repository.get(record.session_id)
             if existing is not None:
                 record = self._merge_records(existing, record)
-        assert_safe_serialized(record)
+        assert_safe_serialized(record, extra_secrets=self._env_secrets)
         return self._repository.save(record)
 
     @staticmethod
@@ -265,7 +318,9 @@ class IngestionService:
                 "files_changed": files,
                 "diffs": diffs,
                 "tool_calls": [tools[call_id] for call_id in order],
+                "start_state": incoming.start_state or existing.start_state,
                 "end_state": incoming.end_state or existing.end_state,
+                "source_path": incoming.source_path or existing.source_path,
                 "timestamp_range": {
                     "started_at": min(
                         existing.timestamp_range.started_at,

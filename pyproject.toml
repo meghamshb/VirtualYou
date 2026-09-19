@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "virtual-you-ingest"
 version = "0.1.0"
 description = "Local, redaction-first ingestion pipeline for Virtual You"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2.8,<3",
 ]
@@ -48,7 +48,7 @@ show_missing = true
 fail_under = 75
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]

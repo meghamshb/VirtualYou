@@ -179,7 +179,11 @@ class DMInbox:
     async def prepare_one(self):
         if not self.monitors:
             return
-        monitors = list(self.monitors.values())
+        with self.c.backend.store.connection() as db:
+            pending = {r[0] for r in db.execute("SELECT DISTINCT recipient FROM slack_dm_replies WHERE state IN ('queued','generated')")}
+        monitors = [m for key, m in self.monitors.items() if key in pending and not m.prepare_lock.locked()]
+        if not monitors:
+            return
         monitor = monitors[self.prepare_index % len(monitors)]
         self.prepare_index += 1
         await monitor.prepare_one()
@@ -208,5 +212,5 @@ class DMInbox:
                     delay = 15
                 await asyncio.sleep(delay)
         async with asyncio.TaskGroup() as group:
-            for operation in (self.discover, self.poll_one, self.route_one, self.prepare_one):
+            for operation in (self.discover, self.poll_one, self.route_one, self.prepare_one, self.prepare_one, self.prepare_one):
                 group.create_task(loop(operation))

@@ -8,6 +8,7 @@ import json
 
 import httpx
 
+from virtual_you.backend.collection import Collector
 from virtual_you.backend.errors import ServiceError
 from virtual_you.contracts.reporting import utcnow
 from virtual_you.ingest.errors import IngestionError
@@ -21,12 +22,15 @@ class Heartbeat:
         self.settings, self.store, self.retrieval, self.client = settings, store, retrieval, client
         self.lock = asyncio.Lock()
         self.fingerprints = {}
+        self.collector = Collector(settings)
 
     async def refresh(self):
         async with self.lock:
             started = utcnow()
             changed, skipped, removed, errors = 0, 0, 0, []
             observed = set()
+            collection = await asyncio.to_thread(self.collector.collect)
+            errors.extend(collection["errors"])
             try:
                 if not self.settings.activity_dir.is_dir():
                     raise OSError("Activity directory unavailable")
@@ -51,7 +55,7 @@ class Heartbeat:
                         skipped += 1
                         continue
                     payload = json.loads(raw)
-                    changed += int(self.retrieval.upsert(payload, origin))
+                    changed += int(await asyncio.to_thread(self.retrieval.upsert, payload, origin))
                     if path.parent != self.settings.activity_dir:
                         self.retrieval.assign_project([payload["session_id"]], path.parent.name)
                     self.fingerprints[origin] = digest
@@ -89,13 +93,14 @@ class Heartbeat:
                         try:
                             if len(json.dumps(record)) > MAX_RECORD_BYTES:
                                 raise ValueError("Record too large")
-                            changed += int(self.retrieval.upsert(record, "feed"))
+                            changed += int(await asyncio.to_thread(self.retrieval.upsert, record, "feed"))
                         except (ValueError, ServiceError, IngestionError):
                             errors.append({"source": "feed", "code": "invalid_activity_record"})
                 except (httpx.HTTPError, ValueError):
                     errors.append({"source": "feed", "code": "feed_refresh_failed"})
             previous = self.store.metadata("heartbeat") or {}
             status = {
+                "collection": collection,
                 "enabled": self.settings.heartbeat_enabled,
                 "interval_seconds": self.settings.heartbeat_seconds,
                 "started_at": started,

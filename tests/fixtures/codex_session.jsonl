@@ -1,0 +1,9 @@
+{"timestamp":"2026-09-19T03:22:08.690Z","ordinal":"0","type":"session_meta","payload":{"session_id":"codex-demo","id":"codex-demo"}}
+{"timestamp":"2026-09-19T03:22:09.000Z","ordinal":"1","type":"turn_context","payload":{"cwd":"/tmp"}}
+{"timestamp":"2026-09-19T03:22:10.000Z","ordinal":"2","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<app-context> ignore me"}]}}
+{"timestamp":"2026-09-19T03:22:11.000Z","ordinal":"3","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Create a Dockerfile"}]}}
+{"timestamp":"2026-09-19T03:22:12.000Z","ordinal":"4","type":"response_item","payload":{"type":"reasoning","id":"rs-1","summary":[]}}
+{"timestamp":"2026-09-19T03:22:13.000Z","ordinal":"5","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-1","name":"exec","input":"text(await tools.apply_patch(\"*** Begin Patch\\n*** Add File: Dockerfile\\n+FROM python:3.12-slim\\n*** Update File: README.md\\n+Docker notes\\n*** End Patch\\n\"));"}}
+{"timestamp":"2026-09-19T03:22:14.000Z","ordinal":"6","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-1","output":[{"type":"input_text","text":"added Dockerfile"}]}}
+{"timestamp":"2026-09-19T03:22:15.000Z","ordinal":"7","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Dockerfile added."}]}}
+{"timestamp":"2026-09-19T03:22:16.000Z","ordinal":"8","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Dockerfile added.","thread_id":"codex-demo"}}

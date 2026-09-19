@@ -29,14 +29,23 @@ def make_monitor(tmp_path):
     class Provider:
         async def generate(self, **kwargs):
             assert 'private123' not in kwargs['user']
-            return {'reply':'Sure, what would you like to discuss?'}
+            return {'paragraphs':[{'text':'Not recorded in the selected activity.', 'citations':[]}], 'search_query':''}
+    from virtual_you.backend.retrieval import RetrievalService
+    from virtual_you.backend.drafting import DraftEngine
+    from virtual_you.backend.config import Settings
+    from virtual_you.contracts.reporting import RetrievalRequest
+    retrieval = RetrievalService(store)
+    provider = Provider()
     slack = Slack()
     c = SimpleNamespace(
-        backend=SimpleNamespace(store=store, persona=SimpleNamespace(provider=Provider())),
+        backend=SimpleNamespace(store=store, persona=SimpleNamespace(provider=provider),
+            retrieval=retrieval, engine=DraftEngine(Settings(),store,retrieval,provider)),
         state=SimpleNamespace(recipient=lambda r:person),
         config=SimpleNamespace(owner_id='UOWNER',team_id='TTEAM'),
         credentials=SimpleNamespace(user_token=lambda:'token', installation=lambda:SimpleNamespace(user_scopes=['chat:write'])),
         client_factory=lambda **kwargs:slack,
+        scope=lambda person:RetrievalRequest(project_ids=person.get('projects', []),sources=['claude','cursor','codex']),
+        policy_fingerprint=lambda person:json.dumps(person,sort_keys=True),
         preferences=lambda:{'paused':False}, profile_id=lambda r:r, bot=lambda:slack)
     return DMReplies(c,'UFRIEND'), calls
 
@@ -184,4 +193,47 @@ def test_user_send_uses_user_token_not_bot(tmp_path):
         await monitor.decide(key,True)
         assert len(calls)==1  # Only the approval card used the bot.
         assert len(user_calls)==1 and user_calls[0]['channel']=='DHUMAN'
+    asyncio.run(run())
+
+
+def test_ingested_work_uses_correct_style_and_blocks_changed_evidence(tmp_path):
+    from pathlib import Path
+    from virtual_you.ingest.service import IngestionService
+    from virtual_you.backend.errors import ServiceError
+    monitor, calls = make_monitor(tmp_path)
+    c=monitor.c
+    source=Path(__file__).parents[2]/'tests/fixtures/claude_session.jsonl'
+    record=IngestionService(data_directory=tmp_path/'raw-data',apply_git_overlay=False,latest_work_only=False).ingest_file('claude',source)
+    c.backend.retrieval.upsert(record.model_dump(mode='json'))
+    c.backend.retrieval.assign_project([record.session_id],'virtualyou')
+    c.state.recipient('UFRIEND')['projects']=['virtualyou']
+    prompts=[]
+    async def generate(**kwargs):
+        data=json.loads(kwargs['user']);prompts.append(data)
+        e=next(e for e in data['evidence'] if e['field']=='end_state')
+        return {'paragraphs':[{'text':e['text'], 'citations':[{'evidence_id':e['evidence_id'],'quote':e['text']}]}]}
+    c.backend.persona.provider.generate=generate
+    async def run():
+        with c.backend.store.connection(write=True) as db:
+            monitor._insert(db,'DHUMAN',{'user':'UFRIEND','ts':'2000000001.0','text':'progress report'})
+        await monitor.prepare_one()
+        assert prompts[0]['style_only']=={'tone':'friendly'}
+        assert len(calls)==1 and calls[0]['channel']=='DBOTUOWNER'
+        assert 'Source quotes' in json.dumps(calls[0]['blocks'])
+        with c.backend.store.connection() as db:
+            reply_id=db.execute('SELECT id FROM slack_dm_replies').fetchone()[0]
+        c.backend.retrieval.assign_project([record.session_id],'private')
+        with pytest.raises(ServiceError) as error:
+            await monitor.decide(reply_id,True)
+        assert error.value.code=='evidence_changed'
+        assert len(calls)==1
+    asyncio.run(run())
+
+
+def test_concurrent_workers_generate_one_approval_card(tmp_path):
+    monitor,calls=make_monitor(tmp_path)
+    async def run():
+        await monitor.poll()
+        await asyncio.gather(monitor.prepare_one(),monitor.prepare_one(),monitor.prepare_one())
+        assert len(calls)==1
     asyncio.run(run())

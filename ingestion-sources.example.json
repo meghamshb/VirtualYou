@@ -1,0 +1,22 @@
+[
+  {
+    "source": "git",
+    "path": "/absolute/path/to/MakeNoMistake",
+    "workspace": "/absolute/path/to/MakeNoMistake",
+    "project": "virtualyou"
+  },
+  {
+    "source": "claude",
+    "path": "/absolute/path/to/project-specific/claude/sessions",
+    "pattern": "*.jsonl",
+    "workspace": "/absolute/path/to/MakeNoMistake",
+    "project": "virtualyou"
+  },
+  {
+    "source": "cursor",
+    "path": "/absolute/path/to/project-specific/agent-transcripts",
+    "pattern": "**/*.jsonl",
+    "workspace": "/absolute/path/to/MakeNoMistake",
+    "project": "virtualyou"
+  }
+]

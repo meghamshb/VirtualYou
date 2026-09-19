@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Sequence
 
 import pytest
 
@@ -12,11 +13,18 @@ from virtual_you.ingest.store import ActivityRecordRepository
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 
-def make_service(tmp_path: Path) -> IngestionService:
+def make_service(
+    tmp_path: Path,
+    env_secrets: Optional[Sequence[str]] = None,
+    workspace_root: Optional[Path] = None,
+) -> IngestionService:
     return IngestionService(
         ActivityRecordRepository(tmp_path / "activities"),
         data_directory=tmp_path,
         now=lambda: datetime(2026, 9, 19, 3, tzinfo=timezone.utc),
+        env_search_root=tmp_path,
+        env_secrets=env_secrets,
+        workspace_root=workspace_root if workspace_root is not None else tmp_path,
     )
 
 
@@ -33,7 +41,13 @@ def test_ingests_claude_and_cursor_into_same_contract(tmp_path: Path) -> None:
     assert claude.schema_version == cursor.schema_version == "1.0"
     assert claude.files_changed[0].path == "src/payments/callback.py"
     assert cursor.files_changed[0].path == "src/health.py"
-    assert service.latest_activity() == cursor
+    assert claude.source_path == str((FIXTURES / "claude_session.jsonl").resolve())
+    assert cursor.source_path == str((FIXTURES / "cursor_session.jsonl").resolve())
+
+    codex = service.ingest_file("codex", FIXTURES / "codex_session.jsonl")
+    assert codex.source == "codex"
+    assert [item.path for item in codex.files_changed] == ["Dockerfile", "README.md"]
+    assert service.latest_activity() == codex
 
 
 def test_redacts_planted_secret_before_storage_and_export(tmp_path: Path) -> None:
@@ -72,6 +86,44 @@ def test_redacts_planted_secret_before_storage_and_export(tmp_path: Path) -> Non
     assert "[REDACTED]" in serialized
     assert secret not in serialized
     assert secret not in service.export()
+    assert secret not in next((tmp_path / "activities").glob("*.json")).read_text()
+
+
+def test_redacts_dotenv_values_that_leak_into_a_session(tmp_path: Path) -> None:
+    secret = "plain-local-app-secret-value"
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=sk-test-51Qx9ZaBcDeFgHiJkLmNoPqR",
+                "NEXTAUTH_SECRET={}".format(secret),
+                "PORT=3000",
+                "DEBUG=true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    service = make_service(tmp_path)
+    transcript = json.dumps(
+        {
+            "type": "user",
+            "sessionId": "env-session",
+            "timestamp": "2026-09-19T01:00:00Z",
+            "message": {
+                "role": "user",
+                "content": "The leaked secret is {} and the port is 3000.".format(
+                    secret
+                ),
+            },
+        }
+    )
+
+    record = service.ingest_transcript("claude", transcript)
+    serialized = record.model_dump_json()
+
+    assert secret not in serialized
+    assert "[REDACTED]" in serialized
+    assert "3000" in serialized
     assert secret not in next((tmp_path / "activities").glob("*.json")).read_text()
 
 

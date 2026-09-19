@@ -92,6 +92,12 @@ class DemoProvider:
                 if re.search(r"[\U0001F300-\U0001FAFF]", text)
                 else "No emoji observed",
             }
+        if task == "grounded_reply":
+            evidence = data["evidence"]
+            selected = next((e for e in evidence if e["field"] == "end_state"), None)
+            return {"paragraphs": [{"text": selected["text"][:450] if selected else UNKNOWN,
+                                     "citations": [{"evidence_id": selected["evidence_id"], "quote": selected["text"][:450]}] if selected else []}],
+                    "search_query": ""}
         evidence = data["evidence"]
         report = {key: {"text": UNKNOWN, "citations": []} for key in SECTION_TITLES}
 

@@ -26,6 +26,7 @@ class Settings:
     slack_channels: tuple[str, ...] = ()
     discord_webhook_url: str = ""
     request_timeout: float = 60
+    ingestion_config: Path | None = None
 
     def prepare(self):
         self.data_dir = self.data_dir.expanduser().resolve()
@@ -87,6 +88,8 @@ class Settings:
             return value in {"true", "1"}
 
         return cls(
+            ingestion_config=Path(os.environ["VIRTUAL_YOU_INGESTION_CONFIG"]).expanduser().resolve()
+            if os.getenv("VIRTUAL_YOU_INGESTION_CONFIG") else None,
             data_dir=Path(os.getenv("VIRTUAL_YOU_DATA_DIR", ".virtual-you")),
             activity_dir=Path(os.environ["VIRTUAL_YOU_ACTIVITY_DIR"])
             if os.getenv("VIRTUAL_YOU_ACTIVITY_DIR")

@@ -8,6 +8,7 @@ from virtual_you.ingest.redact import (
     REDACTED,
     assert_safe_serialized,
     contains_secret,
+    is_sensitive_key,
     redact_text,
     redact_value,
 )
@@ -55,6 +56,10 @@ def test_redacts_provider_token_formats(secret: str) -> None:
         'client-secret: "do-not-print-this"',
         "password=hunter2",
         "access_token: token-value-123",
+        "OPENAI_API_KEY=not-a-provider-token-value",
+        "DB_PASSWORD=hunter2",
+        "NEXTAUTH_SECRET=my-app-secret",
+        'DATABASE_URL="postgres://example.internal/app"',
     ],
 )
 def test_redacts_generic_key_value_secrets(source: str) -> None:
@@ -194,6 +199,35 @@ def test_redacts_short_secrets_under_sensitive_mapping_keys() -> None:
         "nested": {"token": REDACTED},
     }
     assert contains_secret(value)
+
+
+def test_redacts_prefixed_env_mapping_keys() -> None:
+    result = redact_value(
+        {
+            "OPENAI_API_KEY": "not-a-provider-token-value",
+            "DB_PASSWORD": "hunter2",
+            "PORT": "3000",
+        }
+    )
+
+    assert result == {
+        "OPENAI_API_KEY": REDACTED,
+        "DB_PASSWORD": REDACTED,
+        "PORT": "3000",
+    }
+
+
+def test_redacts_known_dotenv_values_even_without_the_key_name() -> None:
+    secret = "plain-local-app-secret-value"
+    result = redact_text(
+        "do not repeat {}".format(secret),
+        extra_secrets=(secret,),
+    )
+
+    assert result == "do not repeat {}".format(REDACTED)
+    assert is_sensitive_key("NEXTAUTH_SECRET")
+    assert is_sensitive_key("OPENAI_API_KEY")
+    assert not is_sensitive_key("PORT")
 
 
 def test_assert_safe_serialized_accepts_clean_output() -> None:

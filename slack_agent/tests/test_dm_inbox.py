@@ -30,7 +30,7 @@ def setup_inbox(tmp_path):
     c.backend.store.get_persona=profile
     async def generate(**kwargs):
         model_inputs.append(json.loads(kwargs['user']))
-        return {'reply':'Draft for review'}
+        return {'paragraphs':[{'text':'Not recorded in the selected activity.', 'citations':[]}], 'search_query':''}
     c.backend.persona.provider.generate=generate
     slack=c.bot()
     slack.conversations_info=lambda channel:{'channel':{'is_im':True,'user':'UNEW'}}
@@ -51,7 +51,7 @@ def test_routing_uses_independent_personas_and_preserves_profiles(tmp_path):
         inbox.receive_event(event('UTWO','DTWO'),'TTEAM')
         await inbox.route_one();await inbox.route_one()
         await inbox.prepare_one();await inbox.prepare_one()
-        assert {x['style']['tone'] for x in inputs}=={'formal','casual'}
+        assert {x['style_only']['tone'] for x in inputs}=={'formal','casual'}
         assert all(x['channel']=='DBOTUOWNER' for x in calls)
         assert not seeds
         assert json.dumps(people,sort_keys=True)==before
@@ -67,7 +67,7 @@ def test_new_sender_creates_profile_once_and_labels_fallback(tmp_path):
         await inbox.route_one()
         await inbox.monitors['UNEW'].prepare_one()
         assert seeds==['UNEW']
-        assert 'Neutral' in inputs[-1]['style']['tone']
+        assert 'Neutral' in inputs[-1]['style_only']['tone']
         assert 'neutral fallback' in json.dumps(calls[-1]['blocks'])
         assert people['UFRIEND']['reviewed_version']==1
     asyncio.run(run())

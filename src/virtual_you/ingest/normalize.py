@@ -1,6 +1,7 @@
 """Normalize raw ingestion events into an unredacted activity mapping."""
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
@@ -17,6 +18,10 @@ from virtual_you.ingest.events import (
 )
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_WINDOWED_SOURCES = frozenset({"claude", "cursor", "codex"})
+_SENTENCE_BOUNDARY = re.compile(r"[.!?](?:\s+|$)")
+_REASONING_PREFIX = "Reasoning occurred; omitted."
+_APPROACH_LIMIT = 500
 
 
 def _input_summary(value: Mapping[str, Any]) -> str:
@@ -36,6 +41,7 @@ def normalize_events(
     source: str = "claude",
     default_session_id: Optional[str] = None,
     fallback_timestamp: Optional[datetime] = None,
+    latest_work_only: bool = True,
 ) -> Dict[str, Any]:
     """Produce deterministic, unredacted data for the later policy boundary."""
 
@@ -45,6 +51,8 @@ def normalize_events(
             IngestionErrorCode.NOTHING_TO_REPORT,
             "No raw events were provided for normalization",
         )
+    if latest_work_only and source in _WINDOWED_SOURCES:
+        materialized = _task_window(materialized)
 
     prompts: List[str] = []
     assistant_text: List[str] = []
@@ -100,7 +108,7 @@ def normalize_events(
             prior_result = pending_results.pop(event.call_id, None)
             if prior_result is not None:
                 call["result_summary"] = prior_result.content
-                call["status"] = "failed" if prior_result.is_error else "succeeded"
+                call["status"] = "unknown" if prior_result.content.startswith("Turn ended (") else ("failed" if prior_result.is_error else "succeeded")
         elif isinstance(event, ToolResultEvent):
             call_index = call_indexes.get(event.call_id)
             if call_index is None:
@@ -108,7 +116,7 @@ def normalize_events(
             else:
                 calls[call_index]["result_summary"] = event.content
                 calls[call_index]["status"] = (
-                    "failed" if event.is_error else "succeeded"
+                    "unknown" if event.content.startswith("Turn ended (") else ("failed" if event.is_error else "succeeded")
                 )
         elif isinstance(event, SessionEndEvent):
             if event.result.strip():
@@ -135,14 +143,6 @@ def normalize_events(
         end_state = assistant_text[-1]
     else:
         end_state = ""
-    reasoning_summary = (
-        "Assistant reasoning was present in {} block{}; detailed "
-        "chain-of-thought is intentionally omitted.".format(
-            reasoning_count, "" if reasoning_count == 1 else "s"
-        )
-        if reasoning_count
-        else ""
-    )
 
     return {
         "session_id": _first_session_id(
@@ -152,7 +152,7 @@ def normalize_events(
         "source": source,
         "start_state": start_state,
         "prompts": prompts,
-        "reasoning_summary": reasoning_summary,
+        "reasoning_summary": _reasoning_summary(assistant_text, reasoning_count),
         "files_changed": files_changed,
         "diffs": diffs,
         "tool_calls": calls,
@@ -162,6 +162,67 @@ def normalize_events(
             "ended_at": ended_at,
         },
     }
+
+
+def _task_window(events: List[RawEvent]) -> List[RawEvent]:
+    """Keep the last user prompt that produced a file change, not setup or Q&A."""
+
+    windows: List[List[RawEvent]] = []
+    current: List[RawEvent] = []
+    for event in events:
+        if isinstance(event, UserPromptEvent) and current:
+            windows.append(current)
+            current = [event]
+        else:
+            current.append(event)
+    if current:
+        windows.append(current)
+
+    work_windows = [
+        window
+        for window in windows
+        if any(
+            isinstance(event, FileChangeEvent) and event.operation != "read"
+            for event in window
+        )
+    ]
+    return work_windows[-1] if work_windows else events
+
+
+def _reasoning_summary(assistant_text: List[str], reasoning_count: int) -> str:
+    approach = _approach_from_assistant(assistant_text)
+    if reasoning_count and approach:
+        return "{} Approach: {}".format(_REASONING_PREFIX, approach)
+    if reasoning_count:
+        return _REASONING_PREFIX
+    return approach
+
+
+def _approach_from_assistant(assistant_text: List[str]) -> str:
+    combined = " ".join(
+        " ".join(part.split()) for part in assistant_text if part.strip()
+    )
+    if not combined:
+        return ""
+    sentences: List[str] = []
+    start = 0
+    for match in _SENTENCE_BOUNDARY.finditer(combined):
+        piece = combined[start:match.end()].strip()
+        if piece:
+            sentences.append(piece)
+        start = match.end()
+        if len(sentences) >= 2:
+            break
+    if len(sentences) < 2:
+        remainder = combined[start:].strip()
+        if remainder:
+            sentences.append(remainder)
+    if not sentences:
+        sentences = [combined]
+    summary = " ".join(sentences[:2])
+    if len(summary) > _APPROACH_LIMIT:
+        return summary[:_APPROACH_LIMIT].rstrip()
+    return summary
 
 
 normalize_claude_events = normalize_events
