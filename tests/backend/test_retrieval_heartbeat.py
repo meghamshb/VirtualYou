@@ -164,3 +164,23 @@ def test_missing_activity_mount_preserves_index_and_marks_degraded(client, recor
     status = client.post("/api/refresh").json()
     assert status["state"] == "degraded" and status["count"] == 1
     assert status["errors"][0]["code"] == "directory_unavailable"
+
+
+def test_project_subfolders_assign_future_records_and_filters_deny_empty(client, settings, record):
+    import asyncio
+    import json
+
+    from virtual_you.contracts.reporting import RetrievalRequest
+
+    project = settings.activity_dir / "Team project"
+    project.mkdir()
+    (project / "activity-one.json").write_text(json.dumps(record))
+    asyncio.run(client.app.state.heartbeat.refresh())
+    retrieval = client.app.state.retrieval
+    assert retrieval.project_choices() == ["Team project"]
+    assert retrieval.search(
+        RetrievalRequest(project_ids=["Team project"], sources=[record["source"]])
+    )
+    assert not retrieval.search(RetrievalRequest(project_ids=[]))
+    assert not retrieval.search(RetrievalRequest(sources=[]))
+    assert not retrieval.search(RetrievalRequest(project_ids=["Other project"]))

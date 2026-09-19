@@ -24,6 +24,20 @@ def create_slack_app():
     state_dir = Path(os.getenv("VIRTUAL_YOU_DATA_DIR", ".virtual-you")) / "slack-oauth-states"
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     state_dir.chmod(0o700)
+    redirect = os.environ.get("SLACK_REDIRECT_URI", "")
+    from urllib.parse import urlparse
+
+    parsed = urlparse(redirect)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.path != "/slack/oauth_redirect"
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "Configure a public HTTPS SLACK_REDIRECT_URI ending /slack/oauth_redirect."
+        )
     settings = OAuthSettings(
         client_id=os.environ.get("SLACK_CLIENT_ID"),
         client_secret=os.environ.get("SLACK_CLIENT_SECRET"),

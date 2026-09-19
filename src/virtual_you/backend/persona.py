@@ -79,3 +79,36 @@ class PersonaService:
                 (clean.recipient_id, profile.model_dump_json()),
             )
         return profile
+
+    def revise(self, recipient_id, expected_version, style, *, remove_examples=False):
+        """Explicit style corrections; retained snippets can be removed without model calls."""
+        clean = PersonaStyle.model_validate(redact_value(style.model_dump()))
+        assert_safe_serialized(clean)
+        with self.store.connection(write=True) as db:
+            row = db.execute(
+                "SELECT payload FROM personas WHERE recipient_id=?", (recipient_id,)
+            ).fetchone()
+            if not row:
+                raise ServiceError("persona_not_found", "Create this person's style first.", 404)
+            profile = PersonaProfile.model_validate_json(row[0])
+            if profile.version != expected_version:
+                raise ServiceError(
+                    "persona_conflict", "Reopen the style review; this profile has changed.", 409
+                )
+            profile.style = clean
+            profile.version += 1
+            if remove_examples:
+                profile.examples = []
+            profile.soul_md = render_soul(profile)
+            assert_safe_serialized(profile)
+            directory = (
+                self.settings.data_dir
+                / "personas"
+                / hashlib.sha256(recipient_id.encode()).hexdigest()[:24]
+            )
+            write_private(directory / "soul.md", profile.soul_md)
+            db.execute(
+                "UPDATE personas SET payload=? WHERE recipient_id=?",
+                (profile.model_dump_json(), recipient_id),
+            )
+        return profile

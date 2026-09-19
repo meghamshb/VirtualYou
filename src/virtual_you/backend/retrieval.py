@@ -98,6 +98,7 @@ class RetrievalService:
                     409,
                 )
             if existing and existing["record_hash"] == digest:
+                db.execute("UPDATE activities SET origin=? WHERE id=?", (origin, existing["id"]))
                 return False
             if existing and as_utc(record.timestamp_range.ended_at) < existing["ended_at"]:
                 # A delayed feed response must not roll a session back to older evidence.
@@ -156,6 +157,24 @@ class RetrievalService:
             predicates.append("activity_search MATCH ?")
             params.append(" OR ".join('"' + token + '"' for token in tokens))
             order = "bm25(activity_search), a.ended_at DESC"
+        if request.project_ids is not None:
+            if not request.project_ids:
+                return []
+            predicates.append(
+                "EXISTS (SELECT 1 FROM activity_projects p WHERE p.session_id=a.session_id AND p.project_id IN ("
+                + ",".join("?" for _ in request.project_ids)
+                + "))"
+            )
+            params.extend(request.project_ids)
+        if request.sources is not None:
+            if not request.sources:
+                return []
+            predicates.append(
+                "json_extract(a.payload,'$.source') IN ("
+                + ",".join("?" for _ in request.sources)
+                + ")"
+            )
+            params.extend(request.sources)
         if request.session_ids:
             predicates.append(
                 "a.session_id IN (" + ",".join("?" for _ in request.session_ids) + ")"
@@ -198,3 +217,43 @@ class RetrievalService:
                     "SELECT count(*) AS count,max(ended_at) AS latest_activity_at,max(indexed_at) AS last_indexed_at FROM activities"
                 ).fetchone()
             )
+
+    def assign_project(self, session_ids, project_id):
+        if (
+            not session_ids
+            or len(session_ids) > 100
+            or not project_id.strip()
+            or len(project_id) > 80
+        ):
+            raise ServiceError("invalid_project", "Choose activities and a project name.")
+        project_id = redact_value(project_id.strip())
+        with self.store.connection(write=True) as db:
+            for session_id in session_ids:
+                if not db.execute(
+                    "SELECT 1 FROM activities WHERE session_id=?", (session_id,)
+                ).fetchone():
+                    raise ServiceError(
+                        "activity_not_found", "An activity is no longer available.", 404
+                    )
+                db.execute(
+                    "INSERT OR REPLACE INTO activity_projects VALUES (?,?)",
+                    (session_id, project_id),
+                )
+
+    def project_choices(self):
+        with self.store.connection() as db:
+            return [
+                r[0]
+                for r in db.execute(
+                    "SELECT DISTINCT p.project_id FROM activity_projects p JOIN activities a ON a.session_id=p.session_id ORDER BY p.project_id"
+                )
+            ]
+
+    def activity_choices(self):
+        with self.store.connection() as db:
+            return [
+                dict(row)
+                for row in db.execute(
+                    "SELECT a.session_id,a.payload,p.project_id FROM activities a LEFT JOIN activity_projects p ON p.session_id=a.session_id ORDER BY a.ended_at DESC LIMIT 100"
+                )
+            ]

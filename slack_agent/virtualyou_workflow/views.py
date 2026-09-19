@@ -207,19 +207,20 @@ def draft_blocks(draft, recipient, live):
     return blocks
 
 
-def home_view(recipients, drafts, *, connected, live, install_url=None, error=None):
+def home_view(recipients, drafts, *, connected, live, install_url=None, error=None, status=""):
+
     blocks = [
         {"type": "header", "text": plain("VirtualYou")},
         section(
             "Choose who you report to. I learn your writing style from your messages to them, prepare updates from your work, and ask you before sending."
         ),
         section(
-            "Slack history connected."
+            "Slack authorization saved. Use Check connection to verify access."
             if connected
             else "Connect your Slack account once to read your own DM history."
         ),
     ]
-    if not connected and install_url:
+    if install_url:
         blocks.append(
             {
                 "type": "actions",
@@ -239,6 +240,9 @@ def home_view(recipients, drafts, *, connected, live, install_url=None, error=No
             "elements": [
                 button("Choose a person", "vy_choose"),
                 button("Refresh status", "vy_refresh_home"),
+                button("Setup & status", "vy_setup"),
+                button("Organize work", "vy_projects"),
+                button("Check connection", "vy_check_connection"),
             ],
         }
     )
@@ -246,7 +250,13 @@ def home_view(recipients, drafts, *, connected, live, install_url=None, error=No
         section(
             "Live delivery enabled; every update needs your approval."
             if live
-            else "Preview mode is enabled. No recipient messages will be sent."
+            else "Work reports are in preview mode. Separately enabled DM replies are sent only when you approve their reply card."
+        )
+    )
+    blocks.append(
+        section(
+            status
+            or "Connect Slack → enable work sources → organize projects → choose people → review style and allowed projects."
         )
     )
     for item in recipients[:10]:
@@ -258,9 +268,18 @@ def home_view(recipients, drafts, *, connected, live, install_url=None, error=No
         ]
         if item.get("error"):
             blocks.append(section(item["error"]))
-        actions = [button("Refresh style", "vy_style", item["recipient"])]
+        actions = [
+            button("Refresh style", "vy_style", item["recipient"]),
+            button("Recipient settings", "vy_policy", item["recipient"]),
+        ]
         if item.get("status") == "ready":
+            blocks.append(
+                section(
+                    f"Style: {'reviewed' if item.get('reviewed_version') else 'review required'}. Allowed projects: {', '.join(item.get('projects', [])) or 'none selected'}."
+                )
+            )
             actions += [
+                button("Review style", "vy_review_style", item["recipient"]),
                 button("Draft now", "vy_draft", item["recipient"]),
                 button(
                     "Pause automatic" if item.get("automatic") else "Enable automatic",

@@ -75,7 +75,7 @@ class PersonaProfile(Contract):
     display_name: str
     version: int = Field(ge=1)
     style: PersonaStyle
-    examples: list[VerbatimText] = Field(min_length=3, max_length=5)
+    examples: list[VerbatimText] = Field(default_factory=list, max_length=5)
     created_at: str
     provider: str
     soul_md: VerbatimText
@@ -84,6 +84,8 @@ class PersonaProfile(Contract):
 class RetrievalRequest(Contract):
     query: str = Field(default="", max_length=1000)
     session_ids: list[str] = Field(default_factory=list, max_length=20)
+    project_ids: Optional[list[str]] = Field(default=None, max_length=100)
+    sources: Optional[list[Literal["claude", "cursor", "codex", "voice"]]] = None
     since: Optional[datetime] = None
     until: Optional[datetime] = None
     limit: int = Field(default=5, ge=1, le=10)
