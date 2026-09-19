@@ -9,7 +9,8 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from virtual_you.contracts.activity import SourceKind
-from virtual_you.ingest.errors import IngestionError
+from virtual_you.ingest.codex import public_session_chunks
+from virtual_you.ingest.errors import IngestionError, IngestionErrorCode
 from virtual_you.ingest.git import collect_commits
 from virtual_you.ingest.service import IngestionService
 from virtual_you.ingest.store import ActivityRecordRepository
@@ -98,6 +99,35 @@ class Collector:
                         )
                         key = (source.project, source.source.value, str(path))
                         if self.fingerprints.get(key) == fingerprint:
+                            continue
+                        if source.source == SourceKind.CODEX:
+                            for index, chunk in enumerate(public_session_chunks(path)):
+                                digest = hashlib.sha256(
+                                    json.dumps(chunk, sort_keys=True).encode()
+                                ).hexdigest()
+                                chunk_key = (*key, index)
+                                if self.fingerprints.get(chunk_key) == digest:
+                                    continue
+                                try:
+                                    record = service.ingest_transcript(
+                                        "codex", "\n".join(json.dumps(x) for x in chunk)
+                                    )
+                                except IngestionError as error:
+                                    if error.code == IngestionErrorCode.NOTHING_TO_REPORT:
+                                        continue
+                                    raise
+                                record.session_id = hashlib.sha256(
+                                    (
+                                        source.project + ":codex:" + str(path) + ":" + str(index)
+                                    ).encode()
+                                ).hexdigest()
+                                # Only normalized and redacted records leave ingestion.
+                                ActivityRecordRepository(
+                                    self.settings.activity_dir / source.project
+                                ).save(record)
+                                self.fingerprints[chunk_key] = digest
+                                changed += 1
+                            self.fingerprints[key] = fingerprint
                             continue
                         record = service.ingest_file(source.source, path)
                         # Ingestion IDs may collide across projects/files. Namespace before

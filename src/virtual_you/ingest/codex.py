@@ -17,13 +17,13 @@ from virtual_you.ingest.events import (
 )
 from virtual_you.ingest.patches import file_changes_from_mapping, patch_text_from_value
 
-
 PathLike = Union[str, Path]
 
 _IGNORED_RECORD_TYPES = {
     "token_usage_record",
     "turn_context",
     "world_state",
+    "compacted",
 }
 _IGNORED_EVENT_TYPES = {
     "item_completed",
@@ -108,9 +108,7 @@ def _events_from_record(
     if record_type == "session_meta":
         session_id = _optional_text(body.get("session_id") or body.get("id")) or session_id
         return [], session_id
-    session_id = (
-        _optional_text(body.get("session_id") or body.get("thread_id")) or session_id
-    )
+    session_id = _optional_text(body.get("session_id") or body.get("thread_id")) or session_id
     common = {
         "line_number": line_number,
         "timestamp": timestamp,
@@ -130,9 +128,7 @@ def _events_from_record(
     )
 
 
-def _event_msg_events(
-    body: Mapping[str, Any], common: Mapping[str, Any]
-) -> List[RawEvent]:
+def _event_msg_events(body: Mapping[str, Any], common: Mapping[str, Any]) -> List[RawEvent]:
     event_type = str(body.get("type") or "")
     if event_type in _IGNORED_EVENT_TYPES:
         return []
@@ -146,17 +142,15 @@ def _event_msg_events(
     )
 
 
-def _response_item_events(
-    body: Mapping[str, Any], common: Mapping[str, Any]
-) -> List[RawEvent]:
+def _response_item_events(body: Mapping[str, Any], common: Mapping[str, Any]) -> List[RawEvent]:
     item_type = str(body.get("type") or "")
     if item_type == "message":
         return _message_events(body, common)
     if item_type == "reasoning":
         return [ReasoningEvent(text="", **common)]
-    if item_type == "custom_tool_call":
+    if item_type in {"custom_tool_call", "function_call"}:
         return _tool_call_events(body, common)
-    if item_type == "custom_tool_call_output":
+    if item_type in {"custom_tool_call_output", "function_call_output"}:
         return [_tool_result_event(body, common)]
     raise IngestionError(
         IngestionErrorCode.UNSUPPORTED_EVENT,
@@ -165,9 +159,7 @@ def _response_item_events(
     )
 
 
-def _message_events(
-    body: Mapping[str, Any], common: Mapping[str, Any]
-) -> List[RawEvent]:
+def _message_events(body: Mapping[str, Any], common: Mapping[str, Any]) -> List[RawEvent]:
     role = str(body.get("role") or "").lower()
     text = _content_text(body.get("content", ""))
     if not text:
@@ -189,22 +181,18 @@ def _message_events(
     )
 
 
-def _tool_call_events(
-    body: Mapping[str, Any], common: Mapping[str, Any]
-) -> List[RawEvent]:
+def _tool_call_events(body: Mapping[str, Any], common: Mapping[str, Any]) -> List[RawEvent]:
     call_id = _optional_text(body.get("call_id") or body.get("id")) or "codex-tool-{}".format(
         common["line_number"]
     )
     name = _optional_text(body.get("name")) or "unknown"
-    raw_input = body.get("input", "")
+    raw_input = body.get("input", body.get("arguments", ""))
     tool_input = {"value": raw_input} if not isinstance(raw_input, dict) else raw_input
     if isinstance(raw_input, str):
         extracted = patch_text_from_value(raw_input)
         if extracted:
             tool_input = {"value": extracted, "raw": raw_input}
-    events: List[RawEvent] = [
-        ToolCallEvent(call_id=call_id, name=name, input=tool_input, **common)
-    ]
+    events: List[RawEvent] = [ToolCallEvent(call_id=call_id, name=name, input=tool_input, **common)]
     events.extend(
         file_changes_from_mapping(
             tool_input,
@@ -217,9 +205,7 @@ def _tool_call_events(
     return events
 
 
-def _tool_result_event(
-    body: Mapping[str, Any], common: Mapping[str, Any]
-) -> ToolResultEvent:
+def _tool_result_event(body: Mapping[str, Any], common: Mapping[str, Any]) -> ToolResultEvent:
     call_id = _optional_text(body.get("call_id") or body.get("id")) or "codex-tool"
     return ToolResultEvent(
         call_id=call_id,
@@ -243,6 +229,8 @@ def _content_text(value: Any) -> str:
         parts = [_content_text(item) for item in value]
         return "\n".join(part for part in parts if part)
     if isinstance(value, dict):
+        if value.get("type") in {"image", "input_image", "image_url", "audio", "input_audio"}:
+            return ""
         for key in ("text", "content", "value"):
             if key in value:
                 return _content_text(value[key])
@@ -289,3 +277,67 @@ __all__ = [
     "parse_codex_jsonl",
     "parse_codex_jsonl_text",
 ]
+
+
+def public_session_chunks(path: PathLike):
+    """Stable, bounded public transcript windows for the background collector.
+
+    Exclude compaction snapshots, duplicated item_completed events, all private
+    reasoning and internal instructions. Accept only complete JSONL lines while
+    Codex is appending. Oversized individual text fields are explicitly marked.
+    """
+    chunk, size, session = [], 0, None
+    with Path(path).open(encoding="utf-8") as stream:
+        for line in stream:
+            if not line.endswith("\n"):
+                break
+            record = json.loads(line)
+            body = record.get("payload", {})
+            if not isinstance(body, dict):
+                continue
+            kind = record.get("type")
+            if kind == "session_meta":
+                session = record
+                continue
+            if kind == "event_msg" and body.get("type") == "task_started":
+                if chunk:
+                    yield ([session] if session else []) + chunk
+                    chunk, size = [], 0
+                continue
+            if kind == "response_item":
+                item_type = body.get("type")
+                if item_type == "message":
+                    if body.get("role") not in {"user", "assistant"} or body.get("channel") in {
+                        "analysis",
+                        "summary",
+                    }:
+                        continue
+                    text = _content_text(body.get("content", ""))
+                    if _should_skip_prompt(text):
+                        continue
+                    body = {**body, "content": text}
+                elif item_type not in {
+                    "custom_tool_call",
+                    "custom_tool_call_output",
+                    "function_call",
+                    "function_call_output",
+                }:
+                    continue
+            elif not (kind == "event_msg" and body.get("type") == "task_complete"):
+                continue
+            body = dict(body)
+            for key in ("content", "input", "arguments", "output", "last_agent_message"):
+                if key in body:
+                    text = _content_text(body[key])
+                    if len(text) > 20000:
+                        text = text[:20000] + "\n[Source item truncated at 20000 characters.]"
+                    body[key] = text
+            record = {"type": kind, "timestamp": record.get("timestamp"), "payload": body}
+            encoded_size = len(json.dumps(record).encode())
+            if chunk and size + encoded_size > 250000:
+                yield ([session] if session else []) + chunk
+                chunk, size = [], 0
+            chunk.append(record)
+            size += encoded_size
+    if chunk:
+        yield ([session] if session else []) + chunk

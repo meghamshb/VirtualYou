@@ -245,3 +245,46 @@ def test_invalid_source_gets_one_repair_and_never_bypasses_validation(settings, 
     )
     assert result["model_calls"] == 2
     assert "invalid_citation" in calls[1]["validation_feedback"]
+
+
+def test_codex_collector_publishes_bounded_chunks_and_skips_unchanged(settings, tmp_path):
+    settings.prepare()
+    source = tmp_path / "session.jsonl"
+    rows = [
+        {"type": "session_meta", "payload": {"id": "test-codex"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "message", "role": "user", "content": "trial-test 1.0"},
+        },
+        {
+            "type": "event_msg",
+            "payload": {"type": "task_complete", "last_agent_message": "Public trial result"},
+        },
+        {"type": "event_msg", "payload": {"type": "task_started"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "message", "role": "user", "content": "Next question"},
+        },
+    ]
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    config = tmp_path / "sources.json"
+    config.write_text(
+        json.dumps(
+            [
+                {
+                    "source": "codex",
+                    "path": str(source),
+                    "workspace": str(tmp_path),
+                    "project": "virtualyou",
+                }
+            ]
+        )
+    )
+    settings.ingestion_config = config
+    collector = Collector(settings)
+    first = collector.collect()
+    assert first["changed"] == 2 and first["errors"] == []
+    assert collector.collect()["changed"] == 0
+    records = [json.loads(p.read_text()) for p in settings.activity_dir.rglob("activity-*.json")]
+    assert len({r["session_id"] for r in records}) == 2
+    assert all(r["source"] == "codex" and r["redacted"] for r in records)

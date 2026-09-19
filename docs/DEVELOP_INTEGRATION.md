@@ -139,3 +139,16 @@ The subsequent smoke test against **actual redacted VirtualYou repository eviden
 completed in **4.39 seconds**, one model call, with **182 ms** local retrieval and
 24 selected snippets. Source IDs resolved to server-owned verbatim excerpts. The
 listener and tunnel were running with a healthy 30-second collection heartbeat.
+
+## Trial-test 1.0: live Codex session
+
+An explicitly configured Codex rollout file can feed the same project continuously.
+The collector partitions its public events by turn and bounded 250 KB windows,
+then publishes separate redacted records. Stable chunk fingerprints avoid
+regenerating unchanged records. Compaction snapshots, private reasoning,
+duplicated event notifications, internal instructions and image/audio blocks are
+excluded. Both custom-tool and function-call formats are supported. Partial final
+JSONL lines wait for the next heartbeat. Individual oversized text items are
+marked and capped at 20,000 characters; this is searchable work context, not a
+lossless transcript archive. Select only the intended session file, not a global
+Codex directory. Enable `codex` in Slack source preferences as well.

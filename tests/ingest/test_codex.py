@@ -16,7 +16,6 @@ from virtual_you.ingest.events import (
 )
 from virtual_you.ingest.normalize import normalize_events
 
-
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "codex_session.jsonl"
 
 
@@ -42,8 +41,7 @@ def test_parse_codex_rollout_extracts_prompts_tools_and_patches():
     ]
     assert any(isinstance(event, SessionEndEvent) for event in events)
     assert not any(
-        isinstance(event, UserPromptEvent) and "app-context" in event.text
-        for event in events
+        isinstance(event, UserPromptEvent) and "app-context" in event.text for event in events
     )
 
 
@@ -91,12 +89,92 @@ def test_codex_task_window_keeps_last_file_change_turn():
 
 def test_private_assistant_analysis_is_not_public_approach():
     import json
+
     from virtual_you.ingest.codex import parse_codex_jsonl_text
     from virtual_you.ingest.normalize import normalize_events
-    text = '\n'.join(json.dumps(x) for x in [
-        {'type':'response_item','payload':{'type':'message','role':'assistant','channel':'analysis','content':[{'type':'output_text','text':'PRIVATE_REASONING_SENTINEL'}]}},
-        {'type':'response_item','payload':{'type':'message','role':'assistant','channel':'final','content':[{'type':'output_text','text':'Recorded final summary.'}]}},
-    ])
-    record=normalize_events(parse_codex_jsonl_text(text),source='codex',latest_work_only=False)
-    assert 'PRIVATE_REASONING_SENTINEL' not in json.dumps(record,default=str)
-    assert 'Recorded final summary.' in record['end_state']
+
+    text = "\n".join(
+        json.dumps(x)
+        for x in [
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "channel": "analysis",
+                    "content": [{"type": "output_text", "text": "PRIVATE_REASONING_SENTINEL"}],
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "channel": "final",
+                    "content": [{"type": "output_text", "text": "Recorded final summary."}],
+                },
+            },
+        ]
+    )
+    record = normalize_events(parse_codex_jsonl_text(text), source="codex", latest_work_only=False)
+    assert "PRIVATE_REASONING_SENTINEL" not in json.dumps(record, default=str)
+    assert "Recorded final summary." in record["end_state"]
+
+
+def test_live_codex_chunks_exclude_internal_history_and_accept_functions(tmp_path):
+    import json
+
+    from virtual_you.ingest.codex import parse_codex_jsonl_text, public_session_chunks
+    from virtual_you.ingest.normalize import normalize_events
+
+    path = tmp_path / "rollout.jsonl"
+    records = [
+        {"type": "session_meta", "payload": {"id": "live-session"}},
+        {"type": "compacted", "payload": {"summary": "PRIVATE_COMPACTION"}},
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "channel": "analysis",
+                "content": "PRIVATE_REASONING",
+            },
+        },
+        {
+            "type": "response_item",
+            "payload": {"type": "message", "role": "user", "content": "Test trial 1.0"},
+        },
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "call_id": "tool",
+                "name": "test",
+                "arguments": "{}",
+            },
+        },
+        {
+            "type": "response_item",
+            "payload": {"type": "function_call_output", "call_id": "tool", "output": "Passed"},
+        },
+        {
+            "type": "event_msg",
+            "payload": {"type": "task_complete", "last_agent_message": "Public result"},
+        },
+        {"type": "event_msg", "payload": {"type": "task_started"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "message", "role": "user", "content": "Next work"},
+        },
+    ]
+    path.write_text("".join(json.dumps(r) + "\n" for r in records) + '{"partial":')
+    chunks = list(public_session_chunks(path))
+    assert len(chunks) == 2
+    assert "PRIVATE_" not in json.dumps(chunks)
+    raw = normalize_events(
+        parse_codex_jsonl_text("\n".join(json.dumps(x) for x in chunks[0])),
+        source="codex",
+        latest_work_only=False,
+    )
+    assert raw["tool_calls"][0]["result_summary"] == "Passed"
+    assert raw["end_state"] == "Public result"
