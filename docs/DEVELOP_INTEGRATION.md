@@ -54,7 +54,7 @@ recipient keeps an independent profile; neutral style is labeled when unreviewed
 Raw collection is off the message path, runs on the heartbeat, and skips unchanged
 files (including SQLite WAL changes). A changed source is reparsed as a complete
 session to preserve request/result pairing; this is more reliable than mixing
-partial parser windows. Sessions over 50 MB fail with a visible collector error.
+partial parser windows. Sessions over 50 MB fail with a visible collector error; normalized activity files are capped at 1 MB by the indexing boundary.
 Voice is file-based and only reread when changed. Source files are namespaced by
 project, source, path and native session ID to avoid cross-project collisions.
 
@@ -63,14 +63,13 @@ model request to 24 snippets / 18,000 evidence characters. Search covers long
 patch tails instead of discarding them during indexing. Existing installations
 rebuild the old truncated index once. This is lexical RAG, not vector embeddings.
 The model can request one alternate keyword search, still within the same project,
-source and date scope. There is no unbounded agent loop or network search.
+source and date scope. There is no unbounded agent loop or network search. A failed citation check permits one repair call, then fails closed; the hard maximum is three calls (initial, optional search, optional repair).
 
 General status reports use the configured recent window; targeted questions can
 retrieve older authorized records. Today/yesterday use UTC boundaries; “past week”
 is a rolling seven-day window. Neither commits nor editor tool requests alone
 prove tests passed or deployment succeeded. Unsupported answers explicitly say
-that the information was not recorded. Quotes are checked exactly; semantic
-support still needs the human reviewer. Source quotes appear in the approval card.
+that the information was not recorded. For conversational replies the model selects source IDs and the server attaches verbatim evidence excerpts, avoiding model-retyped quote errors. Unknown IDs and unsupported uncited paragraphs fail validation. Semantic support still needs the human reviewer. Source excerpts appear in the approval card.
 
 ## Configure once, then run headlessly
 
@@ -135,3 +134,8 @@ A live GPT-4o mini fixture smoke test completed in **4.54 seconds** with one mod
 call and **1.58 ms** local retrieval. This is one development measurement, not a
 latency guarantee; Slack notification latency is additional. No colleague message
 was sent during this check.
+
+The subsequent smoke test against **actual redacted VirtualYou repository evidence**
+completed in **4.39 seconds**, one model call, with **182 ms** local retrieval and
+24 selected snippets. Source IDs resolved to server-owned verbatim excerpts. The
+listener and tunnel were running with a healthy 30-second collection heartbeat.

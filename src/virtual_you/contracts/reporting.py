@@ -110,7 +110,7 @@ class AssembledPrompt(Contract):
 
 class Citation(Contract):
     evidence_id: str
-    quote: str = Field(min_length=1, max_length=1000)
+    quote: str = Field(min_length=1, max_length=1500)
 
 
 class ReportSection(Contract):
@@ -173,7 +173,18 @@ class ReconcileDelivery(RevisionRequest):
         return self
 
 
+class SourceReference(BaseModel):
+    # Old providers may still return quote; only the source ID is authoritative.
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    evidence_id: str = Field(min_length=1)
+
+
+class ReplyParagraph(Contract):
+    text: str = Field(min_length=1, max_length=1500)
+    citations: list[SourceReference] = Field(default_factory=list, max_length=10)
+
+
 class ConversationalReply(Contract):
-    # Each paragraph carries its own source support; unknowns have no citations.
-    paragraphs: list[ReportSection] = Field(min_length=1, max_length=5)
+    # Server resolves source references to exact excerpts, not model-written quotes.
+    paragraphs: list[ReplyParagraph] = Field(min_length=1, max_length=5)
     search_query: str = Field(default="", max_length=300)

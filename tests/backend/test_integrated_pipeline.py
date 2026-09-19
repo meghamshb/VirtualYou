@@ -206,3 +206,42 @@ def test_git_history_keeps_distinct_ids_through_redaction(tmp_path):
     records = collect_commits(root)
     assert len(records) == len({r.session_id for r in records}) == 8
     assert all("REDACTED" not in r.session_id for r in records)
+
+
+def test_invalid_source_gets_one_repair_and_never_bypasses_validation(settings, record):
+    settings.prepare()
+    store = Store(settings.data_dir / "repair.sqlite")
+    retrieval = RetrievalService(store)
+    retrieval.upsert(record)
+    calls = []
+
+    class Model:
+        async def generate(self, **kwargs):
+            data = json.loads(kwargs["user"])
+            calls.append(data)
+            source = data["evidence"][0]
+            return {
+                "paragraphs": [
+                    {
+                        "text": source["text"],
+                        "citations": [
+                            {
+                                "evidence_id": "missing-source"
+                                if len(calls) == 1
+                                else source["evidence_id"],
+                                "quote": "fabricated quotation"
+                                if len(calls) == 1
+                                else source["text"][:100],
+                            }
+                        ],
+                    }
+                ]
+            }
+
+    result = asyncio.run(
+        DraftEngine(settings, store, retrieval, Model()).reply(
+            question="status", scope=RetrievalRequest(), style={}
+        )
+    )
+    assert result["model_calls"] == 2
+    assert "invalid_citation" in calls[1]["validation_feedback"]

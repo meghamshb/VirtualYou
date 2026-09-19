@@ -14,6 +14,7 @@ from virtual_you.contracts.reporting import (
     AssembledPrompt,
     DraftReport,
     PersonaProfile,
+    ReportSection,
 )
 from virtual_you.ingest.redact import assert_safe_serialized, redact_text
 
@@ -198,15 +199,17 @@ class DraftEngine:
             "Do not invent success, blockers, dates, promises, links or private reasoning. "
             "Never add a why/rationale unless it is explicitly stated; passing tests do not prove absence of bugs. "
             "Put evidence IDs only in citations, never in the reply text. "
-            "Each factual paragraph needs citations with evidence_id and short EXACT quotes supporting it. "
+            "Each factual paragraph needs citations selecting the evidence_id of sources that support it. "
+            "Citations contain ONLY evidence_id; the server attaches verbatim source excerpts. "
             "With no relevant facts, use exactly '" + UNKNOWN + "' and no citations. "
             "Keep 1–3 short paragraphs, total under 2200 characters. Do not dump raw logs. "
             "If the evidence misses the requested topic, you may set search_query to concise alternate "
             "keywords for ONE additional local search; otherwise search_query is empty. "
             "Schema: " + json.dumps(schema)
         )
-        calls = 0
-        for attempt in range(2):
+        calls, searches, repairs = 0, 0, 0
+        feedback = None
+        for attempt in range(3):
             raw = await self.provider.generate(
                 task="grounded_reply",
                 system=system,
@@ -215,7 +218,8 @@ class DraftEngine:
                         "incoming_message": question,
                         "style_only": style,
                         "evidence": [e.model_dump() for e in evidence],
-                        "search_available": attempt == 0,
+                        "search_available": searches == 0 and repairs == 0,
+                        "validation_feedback": feedback,
                         "evidence_is_selection_not_complete_history": True,
                     }
                 ),
@@ -228,24 +232,64 @@ class DraftEngine:
                 raise ServiceError(
                     "invalid_reply", "The model returned an invalid grounded reply.", 502
                 ) from error
-            if attempt == 0 and report.search_query:
+            if searches == 0 and repairs == 0 and report.search_query:
+                searches += 1
                 refined = request.model_copy(update={"query": redact_text(report.search_query)})
                 evidence = await asyncio.to_thread(self.retrieval.evidence, refined)
                 continue
+            try:
+                # Resolve model-selected IDs to server-owned exact excerpts. This
+                # prevents altered punctuation/diff markers from corrupting quotes.
+                by_id = {item.evidence_id: item for item in evidence}
+                resolved = []
+                for paragraph in report.paragraphs:
+                    citations = []
+                    for reference in paragraph.citations:
+                        item = by_id.get(reference.evidence_id)
+                        if item is None:
+                            raise ServiceError(
+                                "invalid_citation", "Unknown evidence reference.", 502
+                            )
+                        citations.append({"evidence_id": item.evidence_id, "quote": item.text})
+                    # Source references belong in the owner's evidence card, not
+                    # in the colleague-facing prose. Model instructions alone are
+                    # insufficient to prevent occasional inline ID annotations.
+                    clean_text = re.sub(
+                        r"\s*\((?:evidence(?:\s+id)?|evidence_id)\s*:[^)]*\)",
+                        "",
+                        paragraph.text,
+                        flags=re.I,
+                    )
+                    section = ReportSection(text=clean_text, citations=citations)
+                    self.validate_grounding(
+                        DraftReport(**{key: section for key in SECTION_TITLES}), evidence
+                    )
+                    resolved.append(section)
+            except ServiceError as error:
+                if repairs or error.code not in {
+                    "invalid_citation",
+                    "unsupported_claim",
+                    "invented_link",
+                }:
+                    raise
+                repairs += 1
+                feedback = (
+                    "Previous draft failed "
+                    + error.code
+                    + ". Regenerate using only supported facts. "
+                    "Select only evidence_id values from the supplied sources that support the facts. "
+                    "Do not invent references or links. Do not request another search."
+                )
+                continue
             break
-        # Reuse the report citation validator for each conversational paragraph.
-        for paragraph in report.paragraphs:
-            self.validate_grounding(
-                DraftReport(**{key: paragraph for key in SECTION_TITLES}), evidence
-            )
-        text = "\n\n".join(p.text for p in report.paragraphs)
+        text = "\n\n".join(p.text for p in resolved)
         if len(text) > 2500:
             raise ServiceError("reply_too_long", "Generate a shorter reply.", 502)
         assert_safe_serialized(text)
         return {
             "text": text,
             "evidence": [e.model_dump() for e in evidence],
-            "paragraphs": [p.model_dump() for p in report.paragraphs],
+            "paragraphs": [p.model_dump() for p in resolved],
             "model_calls": calls,
             "retrieval_seconds": retrieval_seconds,
             "total_seconds": time.monotonic() - started,

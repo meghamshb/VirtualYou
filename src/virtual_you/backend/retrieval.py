@@ -266,8 +266,20 @@ class RetrievalService:
             return (matches, priority, item.ended_at)
 
         candidates.sort(key=score, reverse=True)
+        # Preserve human-readable outcomes alongside matching code chunks so
+        # code/test repetitions cannot crowd all session/commit summaries out.
+        summaries = [item for item in candidates if item.field == "end_state"][:8]
         chosen, remaining = [], budget
+        summary_budget = min(6000, budget // 3)
+        for item in summaries:
+            if len(item.text) <= summary_budget:
+                chosen.append(item)
+                remaining -= len(item.text)
+                summary_budget -= len(item.text)
+        selected_ids = {item.evidence_id for item in chosen}
         for item in candidates:
+            if item.evidence_id in selected_ids:
+                continue
             if len(item.text) <= remaining:
                 chosen.append(item)
                 remaining -= len(item.text)
