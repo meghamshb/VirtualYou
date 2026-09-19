@@ -34,6 +34,9 @@ def register(app, coordinator=None):
     def is_owner(body):
         return coordinator.authorized(body)
 
+    from .dm_replies import register_dm_actions
+    register_dm_actions(app, coordinator, event_key)
+
     def publish(client, user):
         if user != coordinator.config.owner_id:
             client.views_publish(
@@ -229,6 +232,16 @@ def register(app, coordinator=None):
 
     @app.event("message")
     def owner_message(event, body, client):
+        if coordinator.dm_replies:
+            coordinator.dm_replies.receive_event(event, body.get("team_id"))
+        if getattr(coordinator.dm_replies, "all_personal_dms", False):
+            return  # Home is the control surface; never echo into personal DMs.
+        # User-authorized events include human-to-human DMs. Never post the
+        # bot onboarding response into those conversations or echo own replies.
+        if not any(a.get("is_bot") for a in body.get("authorizations", [])):
+            return
+        if any(event.get("channel") == p.get("human_channel") for p in coordinator.state.recipients()):
+            return
         if event.get("subtype") or event.get("bot_id") or event.get("channel_type") != "im":
             return
         if (

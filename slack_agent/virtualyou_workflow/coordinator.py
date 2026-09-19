@@ -40,6 +40,15 @@ class Coordinator(Experience):
             )
         backend.store.set_metadata("slack_identity", identity)
         self.restore_destinations()
+        self.dm_replies = None
+        watched = os.getenv("VIRTUAL_YOU_DM_WATCH_RECIPIENT", "")
+        if watched == '*':
+            from .dm_inbox import DMInbox
+            self.dm_replies = DMInbox(self)
+        elif watched:
+            from .dm_replies import DMReplies
+            self.state.recipient(watched)
+            self.dm_replies = DMReplies(self, watched)
 
     def restore_destinations(self):
         channels = [r["bot_channel"] for r in self.state.recipients() if r.get("bot_channel")]
@@ -87,7 +96,10 @@ class Coordinator(Experience):
         self.state.enqueue("persona", {"recipient": recipient}, dedupe)
 
     def profile_id(self, recipient):
-        return f"{self.config.team_id}.{self.config.owner_id}.{recipient}"
+        # Compound Slack IDs can resemble a high-entropy credential to the
+        # content redactor. A deterministic hex key keeps identity out of prose.
+        identity = f"{self.config.team_id}.{self.config.owner_id}.{recipient}"
+        return hashlib.sha256(identity.encode()).hexdigest()
 
     def scope(self, value=None):
         return RetrievalRequest(
@@ -305,7 +317,9 @@ class Coordinator(Experience):
         if not job:
             return False
         try:
-            if job["kind"] == "persona":
+            if job["kind"] == "dm_decision" and self.dm_replies:
+                await self.dm_replies.decide(job["payload"]["id"], job["payload"]["approve"])
+            elif job["kind"] == "persona":
                 await self.create_persona(job)
             elif job["kind"] == "draft":
                 await self.create_draft(job)
@@ -383,6 +397,12 @@ class Coordinator(Experience):
             )
 
     async def run(self):
+        async with asyncio.TaskGroup() as group:
+            if self.dm_replies:
+                group.create_task(self.dm_replies.run())
+            group.create_task(self.run_jobs())
+
+    async def run_jobs(self):
         next_plan = 0
         while True:
             if time.monotonic() >= next_plan:

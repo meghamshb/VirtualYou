@@ -250,7 +250,7 @@ def home_view(recipients, drafts, *, connected, live, install_url=None, error=No
         section(
             "Live delivery enabled; every update needs your approval."
             if live
-            else "Preview mode is enabled. No recipient messages will be sent."
+            else "Work reports are in preview mode. Separately enabled DM replies are sent only when you approve their reply card."
         )
     )
     blocks.append(

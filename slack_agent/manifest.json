@@ -33,7 +33,8 @@
       "user": [
         "im:read",
         "im:history",
-        "users:read"
+        "users:read",
+        "chat:write"
       ],
       "bot": [
         "app_mentions:read",
@@ -53,6 +54,9 @@
       "bot_events": [
         "app_home_opened",
         "app_mention",
+        "message.im"
+      ],
+      "user_events": [
         "message.im"
       ]
     },

@@ -68,11 +68,14 @@ class Experience:
         heartbeat = self.backend.store.metadata("heartbeat") or {}
         preferences = self.preferences()
         return (
-            f"Model: {self.backend.settings.provider}. "
+            f"Model: {self.backend.settings.provider} {self.backend.settings.model}. "
             f"Activity refresh: {heartbeat.get('state', 'starting')}. "
             f"Indexed activities: {self.backend.retrieval.stats()['count']}. "
             f"Enabled sources: {', '.join(preferences['sources']) or 'none'}. "
             f"Drafting: {'paused' if preferences.get('paused') else 'running'}."
+            + (" All personal DMs enabled; sender-specific styles; approval required."
+               if getattr(getattr(self, "dm_replies", None), "all_personal_dms", False)
+               else " Personal DM listener enabled; replies require approval." if getattr(self, "dm_replies", None) else "")
         )
 
     def apply_experience(self, job):

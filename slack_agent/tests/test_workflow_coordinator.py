@@ -15,6 +15,19 @@ from virtualyou_workflow.state import SlackState
 from virtualyou_workflow.views import draft_blocks, edit_modal, selection_modal
 
 
+def test_realistic_slack_identity_survives_persona_redaction():
+    from virtual_you.contracts.reporting import PersonaSeed
+    from virtual_you.ingest.redact import redact_value
+
+    coordinator = object.__new__(Coordinator)
+    coordinator.config = SlackSettings("U7K2M8Q5R9Z", "T0C2KSL2CJ3")
+    key = coordinator.profile_id("U0C3W55LT8Q")
+    seed = PersonaSeed(recipient_id=key, display_name="Colleague", messages=["Hello"] * 10)
+    assert PersonaSeed.model_validate(redact_value(seed.model_dump())).recipient_id == key
+    assert key == coordinator.profile_id("U0C3W55LT8Q")
+    assert key != coordinator.profile_id("UOTHER")
+
+
 class FakeSlack:
     def __init__(self, calls, token):
         self.calls, self.token = calls, token
