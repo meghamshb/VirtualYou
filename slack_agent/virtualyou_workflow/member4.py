@@ -305,7 +305,7 @@ class Member4:
         ][:5]:
             blocks += [
                 section(
-                    f"Needs your attention · {item['reason']}\n{item['question']}\n{item['answer']}"
+                    f"VirtualYou · Needs your judgment\n\nQuestion: {item['question']}\n\n{item['answer']}\nReason: {item['reason']}"
                 ),
                 {
                     "type": "actions",

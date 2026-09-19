@@ -10,9 +10,17 @@ from decimal import Decimal
 from virtual_you.backend.errors import ServiceError
 from virtual_you.ingest.redact import redact_text
 
-from .formatting import formatted_section, slack_text
-from .history import RetryLater, slack_call
 from .conversation_context import ConversationContext, conversation_id, evidence_references
+from .formatting import (
+    assisted_reply,
+    card_fallback,
+    card_fields,
+    card_heading,
+    formatted_sections,
+    slack_text,
+    validate_reply_disclosure,
+)
+from .history import RetryLater, slack_call
 from .views import plain
 
 
@@ -180,19 +188,26 @@ class DMReplies:
             'Grounded in selected work evidence; review the quotes below.'
             if grounding.get('evidence') else 'No matching authorized work evidence.'
         )
-        blocks = [
-            {'type': 'section', 'text': plain(f'Reply for {name} — approval required')},
-            {'type': 'section', 'text': plain('Incoming: ' + row['prompt'][:2000])},
-            formatted_section(row['reply'] or 'Preparing reply…'),
-            {'type': 'context', 'elements': [plain('Style: ' + row.get('style_source', 'reviewed persona'))]},
-            {'type': 'context', 'elements': [plain(status or delivery + ' ' + grounding_note)]},
+        blocks = card_heading("Reply to " + name, status or "Review required")
+        blocks += [card_fields(**{
+            "Sends as": "Your Slack account" if as_user else "VirtualYou bot",
+            "Destination": "Original personal DM" if as_user else "Recipient's bot DM",
+        }), {'type': 'section', 'text': plain('Incoming question\n' + row['prompt'][:2000])},
+            {'type': 'divider'},
         ]
+        blocks += formatted_sections(row['reply'] or 'Preparing reply…')
+        blocks += [
+            {'type': 'context', 'elements': [plain('Style: ' + row.get('style_source', 'reviewed persona'))]},
+            {'type': 'context', 'elements': [plain(grounding_note)]},
+        ]
+        if not status:
+            blocks.append({'type': 'context', 'elements': [plain(delivery)]})
         quotes = [citation['quote'] for paragraph in grounding.get('paragraphs', []) for citation in paragraph.get('citations', [])]
         if quotes:
             blocks.append({'type': 'section', 'text': plain('Source quotes (review for support):\n' + '\n'.join(quotes)[:2500])})
         if not status:
             blocks.append({'type': 'actions', 'elements': [
-                {'type': 'button', 'text': plain('Approve & send as me' if as_user else 'Approve & send as bot'), 'action_id': 'vy_dm_approve', 'value': row['id']},
+                {'type': 'button', 'text': plain('Approve & send as me' if as_user else 'Approve & send as bot'), 'action_id': 'vy_dm_approve', 'value': row['id'], 'style': 'primary'},
                 {'type': 'button', 'text': plain('Edit & send'), 'action_id': 'vy_dm_edit', 'value': row['id']},
                 {'type': 'button', 'text': plain('Reject'), 'action_id': 'vy_dm_reject', 'value': row['id']},
             ]})
@@ -271,7 +286,7 @@ class DMReplies:
                     await asyncio.to_thread(self.c.publish_home)
                     return
                 result = outcome['reply']
-                row['reply'] = result['text']
+                row['reply'] = assisted_reply(result['text'])
                 row['grounding'] = json.dumps(result)
                 row['policy'] = self.c.policy_fingerprint(person)
                 row['style_source'] = style_source
@@ -290,7 +305,7 @@ class DMReplies:
             db.execute("UPDATE slack_dm_replies SET state='notifying',card_channel=? WHERE id=?", (channel, row['id']))
         try:
             sent = await asyncio.to_thread(slack_call, client.chat_postMessage, channel=channel,
-                text='VirtualYou has a reply for your approval.', blocks=self.blocks(row), unfurl_links=False, unfurl_media=False)
+                text=card_fallback(self.blocks(row)), blocks=self.blocks(row), unfurl_links=False, unfurl_media=False)
         except Exception:
             with self.c.backend.store.connection(write=True) as db:
                 db.execute("UPDATE slack_dm_replies SET state='notification_unknown' WHERE id=?", (row['id'],))
@@ -303,6 +318,7 @@ class DMReplies:
         if edited_text is not None:
             from .learning import validate_edit
             edited_text = validate_edit(edited_text, edit_kind)
+            validate_reply_disclosure(row, edited_text)
             if expected_revision != row['edit_revision']:
                 raise ServiceError('reply_changed', 'Reopen the edit form; this reply has changed.', 409)
         if approve and self.c.preferences().get('paused'):
@@ -368,7 +384,7 @@ class DMReplies:
             row = self.get(reply_id)
             status = 'Sent as you in the original DM.'
         await asyncio.to_thread(slack_call, self.c.bot().chat_update, channel=row['card_channel'], ts=row['card_ts'],
-            text=status, blocks=self.blocks(row, status))
+            text=card_fallback(self.blocks(row, status)), blocks=self.blocks(row, status))
 
 
 def register_dm_actions(app, coordinator, event_key):

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from virtual_you.backend.errors import ServiceError
 
+from virtualyou_workflow.formatting import assisted_reply
 from virtualyou_workflow.learning import learning_buttons, register_learning, validate_edit
 
 from .test_dm_replies import make_monitor
@@ -28,13 +29,13 @@ def test_edit_send_is_exact_once_and_never_implicitly_changes_persona(tmp_path, 
         await mon.decide(
             key,
             True,
-            edited_text="Done—tests pass. Not deployed yet.",
+            edited_text=assisted_reply("Done—tests pass. Not deployed yet."),
             edit_kind=kind,
             expected_revision=0,
         )
-        await mon.decide(key, True, edited_text="duplicate", edit_kind=kind, expected_revision=1)
+        await mon.decide(key, True, edited_text=assisted_reply("duplicate"), edit_kind=kind, expected_revision=1)
         assert len(calls) == 2 and calls[-1]["channel"] == "DHUMAN"
-        assert calls[-1]["text"] == "Done—tests pass. Not deployed yet."
+        assert calls[-1]["text"] == assisted_reply("Done—tests pass. Not deployed yet.")
         row = mon.get(key)
         assert row["state"] == "sent" and row["edit_revision"] == 1 and row["original_reply"]
         assert mon.c.backend.store.get_persona("UFRIEND") == before
@@ -58,7 +59,7 @@ def test_stale_edit_and_secrets_cannot_send(tmp_path):
         key = await pending(mon)
         for text, version in [("new reply", 8), ("password=private123", 0)]:
             with pytest.raises(ServiceError):
-                await mon.decide(key, True, edited_text=text, expected_revision=version)
+                await mon.decide(key, True, edited_text=assisted_reply(text), expected_revision=version)
         assert mon.get(key)["state"] == "pending" and len(calls) == 1
 
     asyncio.run(run())
@@ -110,14 +111,14 @@ def test_edit_modal_owner_and_submission_guards(tmp_path):
     assert view["submit"]["text"] == "Send as me"
     view["state"] = {
         "values": {
-            "message": {"value": {"value": "Done."}},
+            "message": {"value": {"value": assisted_reply("Done.")}},
             "kind": {"value": {"selected_option": {"value": "message"}}},
         }
     }
     handlers["vy_dm_edit_submit"](lambda **kw: acks.append(kw), {"user": "stranger"}, view)
     assert not jobs and acks[-1]["response_action"] == "errors"
     handlers["vy_dm_edit_submit"](lambda **kw: acks.append(kw), body, view)
-    assert jobs[0][1]["edited_text"] == "Done." and jobs[0][1]["edit_kind"] == "message"
+    assert jobs[0][1]["edited_text"] == assisted_reply("Done.") and jobs[0][1]["edit_kind"] == "message"
 
 
 @pytest.mark.parametrize("text,kind", [("", "style"), ("x" * 3001, "message"), ("fine", "unknown")])
@@ -143,7 +144,7 @@ def test_explicit_preference_save_replay_and_undo(tmp_path):
 
     async def send():
         key = await pending(mon)
-        await mon.decide(key, True, edited_text="Done.", edit_kind="style", expected_revision=0)
+        await mon.decide(key, True, edited_text=assisted_reply("Done."), edit_kind="style", expected_revision=0)
         return key
 
     key = asyncio.run(send())
@@ -186,7 +187,7 @@ def test_concurrent_edit_and_approval_send_at_most_once(tmp_path):
     async def run():
         key = await pending(mon)
         await asyncio.gather(
-            mon.decide(key, True, edited_text="Edited reply.", expected_revision=0),
+            mon.decide(key, True, edited_text=assisted_reply("Edited reply."), expected_revision=0),
             mon.decide(key, True),
         )
         assert len([call for call in calls if call["channel"] == "DHUMAN"]) == 1
@@ -208,7 +209,7 @@ def test_uncertain_edited_send_is_not_retried_or_learned(tmp_path):
 
         slack.chat_postMessage = fail
         with pytest.raises(TimeoutError):
-            await mon.decide(key, True, edited_text="Done.", edit_kind="style", expected_revision=0)
+            await mon.decide(key, True, edited_text=assisted_reply("Done."), edit_kind="style", expected_revision=0)
         await mon.decide(key, True)
         row = mon.get(key)
         assert row["state"] == "delivery_unknown" and len(calls) == 2

@@ -457,7 +457,7 @@ def test_ambiguous_follow_up_offers_clarification_only_after_owner_approval(tmp_
             row = db.execute("SELECT * FROM slack_dm_replies WHERE source_ts='2000000002.0'").fetchone()
         assert row['state'] == 'pending'
         assert 'GitHub connector' in row['reply'] and 'Jira integration' in row['reply']
-        assert row['reply'].startswith('Could you clarify')
+        assert row['reply'].startswith('VirtualYou-assisted reply\n\nCould you clarify')
         assert monitor.c.backend.assistant.get(row['id'])['status'] == 'draft_ready'
         assert len(calls) == 1 and calls[0]['channel'] == 'DBOTUOWNER'
         await monitor.decide(row['id'], True)
@@ -467,4 +467,59 @@ def test_ambiguous_follow_up_offers_clarification_only_after_owner_approval(tmp_
         memory = monitor.context.memory(conversation_id('DHUMAN'))
         assert not memory.delivered_evidence_refs
 
+    asyncio.run(run())
+
+
+def test_new_assisted_reply_is_disclosed_before_review_and_sent_exactly(tmp_path):
+    from virtualyou_workflow.formatting import card_fallback, slack_text
+    monitor, calls = make_monitor(tmp_path)
+    async def run():
+        await monitor.poll()
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection() as db:
+            key = db.execute('select id from slack_dm_replies').fetchone()[0]
+        row = monitor.get(key)
+        assert row['reply'].startswith('VirtualYou-assisted reply\n\n')
+        assert row['reply'].count('VirtualYou-assisted reply') == 1
+        review = calls[0]
+        assert review['text'] == card_fallback(review['blocks'])
+        assert slack_text(row['reply']) in review['text']
+        assert 'Your Slack account' in review['text']
+        assert len(calls) == 1  # Only a private review card, not a reply yet.
+        await monitor.decide(key, True)
+        assert calls[1]['text'] == slack_text(row['reply'])
+        assert calls[1]['channel'] == 'DHUMAN'
+        assert 'blocks' not in calls[1]  # No unreviewed decoration at delivery.
+    asyncio.run(run())
+
+
+def test_removing_disclosure_from_new_draft_is_not_silently_repaired_or_sent(tmp_path):
+    from virtual_you.backend.errors import ServiceError
+    monitor, calls = make_monitor(tmp_path)
+    async def run():
+        await monitor.poll()
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection() as db:
+            key = db.execute('select id from slack_dm_replies').fetchone()[0]
+        before = monitor.get(key)['reply']
+        with pytest.raises(ServiceError) as error:
+            await monitor.decide(key, True, edited_text='Done.', expected_revision=0)
+        assert error.value.code == 'disclosure_required'
+        assert len(calls) == 1 and monitor.get(key)['state'] == 'pending'
+        assert monitor.get(key)['reply'] == before
+        await monitor.decide(key, False)
+        assert len(calls) == 1 and monitor.get(key)['state'] == 'rejected'
+    asyncio.run(run())
+
+
+def test_legacy_pending_reply_sends_existing_reviewed_text_without_retroactive_label(tmp_path):
+    monitor, calls = make_monitor(tmp_path)
+    async def run():
+        await monitor.poll()
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection(write=True) as db:
+            key = db.execute('select id from slack_dm_replies').fetchone()[0]
+            db.execute('update slack_dm_replies set reply=? where id=?', ('Previously reviewed reply.', key))
+        await monitor.decide(key, True)
+        assert calls[-1]['text'] == 'Previously reviewed reply.'
     asyncio.run(run())

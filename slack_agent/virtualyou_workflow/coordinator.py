@@ -21,6 +21,7 @@ from virtual_you.contracts.reporting import (
 from virtual_you.ingest.redact import redact_text
 
 from .experience import Experience
+from .formatting import card_fallback
 from .history import HistoryCollector, RetryLater, slack_call
 from .member4 import Member4
 from .state import SlackState
@@ -256,7 +257,7 @@ class Coordinator(Member4, Experience):
                 client.chat_update,
                 channel=link["card_channel"],
                 ts=link["card_ts"],
-                text="VirtualYou update awaiting your review",
+                text=card_fallback(blocks),
                 blocks=blocks,
             )
         elif link["notification_state"] == "pending":
@@ -267,7 +268,7 @@ class Coordinator(Member4, Experience):
             try:
                 result = client.chat_postMessage(
                     channel=owner_dm,
-                    text="VirtualYou has an update for you to review.",
+                    text=card_fallback(blocks),
                     blocks=blocks,
                     unfurl_links=False,
                     unfurl_media=False,

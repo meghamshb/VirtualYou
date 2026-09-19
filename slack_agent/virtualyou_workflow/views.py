@@ -1,6 +1,6 @@
 import json
 
-from .formatting import formatted_section
+from .formatting import card_fields, card_heading, formatted_sections
 
 
 def plain(text):
@@ -160,17 +160,29 @@ def reconcile_modal(draft):
 def draft_blocks(draft, recipient, live):
     value = json.dumps({"id": draft["id"], "revision": draft["revision"]})
     status = draft["status"]
-    blocks = [
-        section(f"Update for {recipient} · revision {draft['revision']} · {status}"),
-        section(
-            ("Sent as you in this person's personal DM after your approval."
-             if draft["destination"].get("send_as") == "user" else "Delivered as the VirtualYou bot after your approval.")
-            if live
-            else "Preview mode: approval simulates delivery; no message goes to this person."
-        ),
-    ]
-    # Every character of the reviewed text is visible; no truncated approval preview.
-    blocks += [formatted_section(draft["text"][i : i + 2800]) for i in range(0, len(draft["text"]), 2800)]
+    status_label = {
+        "pending": "Review required", "approved": "Approved · awaiting delivery",
+        "simulated": "Delivery simulated · nothing sent", "delivered": "Delivered",
+        "rejected": "Rejected · nothing sent", "delivery_failed": "Delivery failed",
+        "delivery_unknown": "Delivery needs checking",
+    }.get(status, status.replace("_", " ").capitalize())
+    as_user = draft["destination"].get("send_as") == "user"
+    blocks = card_heading("Work update", status_label)
+    blocks += [card_fields(To=recipient, **{
+        "Delivery": ("Your Slack account" if as_user else "VirtualYou bot") if live else "Simulation · no message sent"
+    })]
+    blocks.append({"type": "divider"})
+    # Full content is presented separately from bot metadata; nothing is appended
+    # to the approved outbound message by this presentation layer.
+    blocks += formatted_sections(draft["text"])
+    blocks.append({"type": "context", "elements": [plain(
+        f"Revision {draft['revision']} · " + (
+            "Approval sends this exact update as you in the recipient's personal DM."
+            if live and as_user else
+            "Approval sends this exact update as the VirtualYou bot."
+            if live else "Approval simulates delivery. No message goes to this person."
+        )
+    )]})
     if draft.get("latest_activity_at"):
         blocks.append(
             {
@@ -181,7 +193,7 @@ def draft_blocks(draft, recipient, live):
     actions = []
     if status == "pending":
         actions.append(
-            button(("Approve & send as me" if draft["destination"].get("send_as") == "user" else "Approve & send") if live else "Approve preview", "vy_approve", value, "primary")
+            button(("Approve & send as me" if draft["destination"].get("send_as") == "user" else "Approve & send") if live else "Approve simulation", "vy_approve", value, "primary")
         )
     if status in {"pending", "approved", "delivery_failed"}:
         actions += [

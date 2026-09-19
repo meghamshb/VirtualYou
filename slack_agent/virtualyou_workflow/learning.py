@@ -6,6 +6,7 @@ from virtual_you.backend.errors import ServiceError
 from virtual_you.contracts.reporting import PersonaStyle
 from virtual_you.ingest.redact import redact_text
 
+from .formatting import validate_reply_disclosure
 from .setup_views import modal
 from .views import plain, section
 
@@ -117,7 +118,7 @@ def register_learning(app, c, event_key):
             "Edit & send",
             [
                 section(
-                    "Submitting sends this exact edited message as you in the original DM. Nothing is learned automatically. For mixed edits, choose this message only and review style separately."
+                    "Submitting sends this exact edited message as you in the original DM. Keep the VirtualYou-assisted reply label if present. Nothing is learned automatically. For mixed edits, choose this message only and review style separately."
                 ),
                 {
                     "type": "input",
@@ -146,6 +147,7 @@ def register_learning(app, c, event_key):
             values = view["state"]["values"]
             kind = values["kind"]["value"]["selected_option"]["value"]
             text = validate_edit(values["message"]["value"]["value"], kind)
+            validate_reply_disclosure(row, text)
             if row["state"] != "pending" or data["revision"] != row["edit_revision"]:
                 raise ServiceError(
                     "reply_changed", "This draft is no longer pending. Reopen its card.", 409
