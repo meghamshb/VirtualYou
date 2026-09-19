@@ -141,6 +141,43 @@ the 220/60 regression totals above are from the preceding recorder implementatio
   checks pass. No physical microphone capture or new ElevenLabs request was used.
   These are frontend changes; the earlier 220/60 Python totals were not rerun.
 
+### No-login ElevenLabs test mode
+
+- `virtual-you-server serve --voice-test` opens a dedicated local audio tester at
+  `/` and `/voice-test`. Record/Stop/preview or file upload → explicit Transcribe
+  → transcript, provider HTTP status, elapsed time and returned JSON. This path
+  needs no backend key and creates no voice note, activity, draft or delivery.
+  Credentials stay server-side; returned credential-like strings are redacted.
+- The mode is off by default. CLI requires loopback and disables proxy-header
+  trust. Diagnostic routes check loopback peer, localhost Host, exact Origin and
+  a custom upload header. `/review` retains the full dashboard and all existing
+  `/api/*` routes still require the owner key. Both paths reuse the same adapter;
+  normal transcription keeps its existing error mapping and approval flow.
+- **245 root tests passed**, including 25 new diagnostic-route/CLI checks, and
+  **60 scoped Slack tests passed**. The two inherited deprecation warnings remain.
+  Covered disabled mode, normal API authentication, nonlocal/foreign-origin/null-
+  origin/rebinding requests, audio bounds, provider status/body/error exposure,
+  secret redaction, network failure, no retry and no saved application records.
+- Chrome via Playwright, isolated `http://127.0.0.1:8128/`, 1280×900 and 390×844:
+  page identity/content, no overlay, live input meter, recording/preview with no
+  login, no upload before Transcribe, provider JSON matching, file fallback,
+  double-click protection, clip retention, inert provider markup and errors pass.
+  Provider 429 and local 503 UI cases use fixtures. No unexpected console errors;
+  the injected 503 produces one expected resource error. Desktop/mobile screenshots
+  were inspected with no overflow. Browser plugin not available; installed Chrome
+  and the existing Playwright runtime were used, with no new dependencies.
+- Two live synthetic-audio requests were made. The first returned HTTP 200 with
+  empty speech text; it was not counted as a successful transcript and was not
+  automatically retried. A separate 8.40-second native Chrome recording returned
+  the correct blocker and unconfirmed-deadline transcript, language and word
+  timestamps in **1.13 seconds**. Empty speech responses now show an explicit
+  message alongside the provider body. This is a smoke test, not an accuracy or
+  latency guarantee; no physical microphone was captured or account quota queried.
+- QA scripts, captured synthetic audio, response JSON and screenshots remain under
+  `/tmp/makenomistake-voice-test/`, outside Git. The port-8000 server was restarted
+  with `--voice-test`; a fresh in-app browser tab shows ElevenLabs configured and
+  Record enabled, with no console errors. Existing tabs were not reloaded.
+
 ## Remaining live acceptance and limitations
 
 Live ElevenLabs transcription now passes the synthetic smoke test. Remaining

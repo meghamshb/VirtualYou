@@ -124,7 +124,8 @@ class ElevenLabsTranscriber:
     def __init__(self, api_key, language=None, *, transport=None):
         self.api_key, self.language, self.transport = api_key, language, transport
 
-    def transcribe(self, content):
+    def inspect(self, content):
+        """Return the provider body/status for the opt-in local tester; never persist it."""
         if not self.api_key:
             raise ServiceError(
                 "voice_key_required",
@@ -145,20 +146,44 @@ class ElevenLabsTranscriber:
                     data=data,
                     files={"file": ("memo.audio", content, "application/octet-stream")},
                 )
-                if response.status_code in {401, 403}:
-                    raise ServiceError(
-                        "voice_auth_failed",
-                        "Check the ElevenLabs key, permissions and available allowance.",
-                        503,
-                    )
-                if response.status_code == 429:
-                    raise ServiceError(
-                        "voice_rate_limited",
-                        "ElevenLabs limited this request. Check allowance before retrying.",
-                        503,
-                    )
-                response.raise_for_status()
-                result = response.json()
+                try:
+                    result = response.json()
+                    response_format = "json"
+                except ValueError:
+                    result = response.text[:8000]
+                    response_format = "text (first 8000 characters)"
+            return {
+                "provider_http_status": response.status_code,
+                "response": result,
+                "response_format": response_format,
+                "duration_seconds": len(audio) / 16000,
+                "provider": "elevenlabs:scribe_v2",
+            }
+        except httpx.HTTPError:
+            raise ServiceError(
+                "transcription_failed",
+                "Could not reach ElevenLabs. No automatic retry or provider switch was made.",
+                503,
+            ) from None
+
+    def transcribe(self, content):
+        inspected = self.inspect(content)
+        status, result = inspected["provider_http_status"], inspected["response"]
+        if status in {401, 403}:
+            raise ServiceError(
+                "voice_auth_failed",
+                "Check the ElevenLabs key, permissions and available allowance.",
+                503,
+            )
+        if status == 429:
+            raise ServiceError(
+                "voice_rate_limited",
+                "ElevenLabs limited this request. Check allowance before retrying.",
+                503,
+            )
+        try:
+            if not 200 <= status < 300:
+                raise ValueError("Provider request failed")
             if not isinstance(result, dict):
                 raise ValueError("Invalid transcription response")
             if not isinstance(result.get("text"), str) or not result["text"].strip():
@@ -167,7 +192,7 @@ class ElevenLabsTranscriber:
                 )
             return {
                 "transcript": result["text"],
-                "duration_seconds": len(audio) / 16000,
+                "duration_seconds": inspected["duration_seconds"],
                 "language": result.get("language_code", "unknown"),
                 "provider": "elevenlabs:scribe_v2",
             }

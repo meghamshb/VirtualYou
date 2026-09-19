@@ -17,9 +17,23 @@ def main():
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--voice-test",
+        action="store_true",
+        help="Open the local ElevenLabs response tester without a login (loopback only).",
+    )
     args = parser.parse_args()
+    if args.voice_test and (
+        args.command != "serve" or args.host not in {"127.0.0.1", "::1", "localhost"}
+    ):
+        parser.error(
+            "--voice-test requires serve with a loopback host (127.0.0.1, ::1 or localhost)."
+        )
     load_dotenv()
     settings = Settings.from_env().prepare()
+    if args.voice_test:
+        settings.voice_test_mode = True
+        settings.voice_provider = "elevenlabs"
     if args.command == "show-key":
         print(settings.api_key)
     elif args.command == "seed-demo":
@@ -29,12 +43,19 @@ def main():
 
         from virtual_you.backend.app import create_app
 
+        host = "[::1]" if args.host == "::1" else args.host
+        if args.voice_test:
+            print(f"ElevenLabs audio test: http://{host}:{args.port}/ — no backend login needed.")
         print(
-            "Review UI: http://{}:{} — use `virtual-you-server show-key` to sign in.".format(
-                args.host, args.port
-            )
+            f"Review UI: http://{host}:{args.port}/review — use `virtual-you-server show-key` to sign in."
         )
-        uvicorn.run(create_app(settings), host=args.host, port=args.port, workers=1)
+        uvicorn.run(
+            create_app(settings),
+            host=args.host,
+            port=args.port,
+            workers=1,
+            proxy_headers=not args.voice_test,
+        )
 
 
 async def seed_demo(settings):

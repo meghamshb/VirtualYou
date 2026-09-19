@@ -52,6 +52,38 @@ The existing `Dockerfile.backend` supports `--build-arg BACKEND_EXTRAS=backend,v
 or `backend,voice-cloud` to include the chosen optional dependency. Mount a
 persistent model cache for local Whisper if repeated weight downloads are unwanted.
 
+## Quick ElevenLabs audio test (no backend login)
+
+For testing speech-to-text by itself, keep `ELEVENLABS_API_KEY` in the server's
+private `.env`, install the `backend` and `voice-cloud` extras above, then run:
+
+```bash
+uv run --no-sync virtual-you-server serve --voice-test
+```
+
+Open `http://127.0.0.1:8000/`. **Record → Stop recording → Transcribe this memo**
+shows the transcript, provider HTTP status, elapsed time and returned response
+body, including word timestamps when supplied. File upload works too. The meter
+and playback preview remain available. Stop does not upload; Transcribe sends
+the raw audio to ElevenLabs and uses the account's allowance. Provider error
+responses are shown directly; neither login nor automatic retry follows an error.
+Credential-like values are redacted before display. The test does not persist
+audio, transcripts, activities or drafts, and never delivers messages.
+
+The **backend key** is a separate local access token generated in the private
+data directory to protect the full review app. It is not the ElevenLabs key.
+This test page needs neither key entered in the browser; the server handles
+the ElevenLabs credential. The full review app remains at `/review`, with its
+existing authentication and approval requirements.
+
+`--voice-test` is off by default, explicitly selects ElevenLabs, and accepts only
+a loopback bind. Its `/dev/voice/*` routes require a loopback client and localhost
+Host; transcription also checks the exact Origin and a custom same-origin header.
+The CLI disables proxy-header trust in this mode. Use it directly on this computer,
+not through a tunnel, reverse proxy or shared deployment. All normal `/api/*`
+routes still require the backend key. Restart without `--voice-test` to restore
+the usual review home page and disable the diagnostic routes.
+
 ## Owner review flow
 
 1. Open the backend review page. Recording, playback and file selection work before

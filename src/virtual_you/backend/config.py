@@ -30,6 +30,7 @@ class Settings:
     voice_language: str | None = None
     voice_provider: str = "local"
     elevenlabs_api_key: str = ""
+    voice_test_mode: bool = False
 
     def prepare(self):
         self.data_dir = self.data_dir.expanduser().resolve()
