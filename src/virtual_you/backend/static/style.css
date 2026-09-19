@@ -20,3 +20,16 @@ details { margin-top: 1rem; }
 .recorder[data-state="recording"] #voice-timer { color: #bd3535; font-weight: 700; }
 #voice-start:not(:disabled) { background: #b42828; color: white; border: 1px solid #b42828; border-radius: .3rem; }
 #voice-playback { display: block; width: 100%; margin: .8rem 0; }
+#voice-meter-box { margin: 1rem 0; }
+#voice-meter-box label { font-size: .9rem; margin-bottom: .25rem; }
+#voice-level { width: 100%; height: 1.4rem; }
+#voice-signal { margin-top: .35rem; font-size: .9rem; }
+#voice-meter-box[data-signal="sound"] #voice-signal { color: #14784b; }
+#voice-meter-box[data-signal="quiet"] #voice-signal,
+#voice-meter-box[data-signal="loud"] #voice-signal { color: #956000; }
+.voice-connect { border: 1px solid #888; border-radius: .65rem; padding: 1rem; margin: 1rem 0; }
+@media (prefers-color-scheme: dark) {
+  #voice-meter-box[data-signal="sound"] #voice-signal { color: #78dba5; }
+  #voice-meter-box[data-signal="quiet"] #voice-signal,
+  #voice-meter-box[data-signal="loud"] #voice-signal { color: #f0c576; }
+}

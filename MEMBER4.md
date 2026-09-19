@@ -59,7 +59,17 @@ persistent model cache for local Whisper if repeated weight downloads are unwant
    The audio stays available while you connect. Create or choose a recipient
    profile before drafting. `virtual-you-server seed-demo` can supply synthetic
    personas and activity for a local demo; delivery defaults to simulation.
+   If you record first, **Connect to transcribe** opens a connection form next
+   to the memo. Enter the backend access key (not the ElevenLabs key); connection
+   itself uploads nothing. Check the provider disclosure, then press **Transcribe
+   this memo**. A failed or expired connection preserves the audio for retry.
 2. Press **Record**, allow microphone access, speak, then **Stop recording**.
+   The microphone meter follows the actual input level. Green feedback indicates
+   sound; persistent quiet input and very loud input have separate messages.
+   This detects sound amplitude, not whether speech is intelligible. The analyser
+   stays local and never plays the microphone through your speakers. Stop/cancel
+   closes it. If the browser cannot run the meter, recording still works and the
+   UI tells you to check playback.
    Preview the audio and select **Transcribe this memo**. Capture stays in tab
    memory until that explicit upload; no transcript or draft is created by Stop.
    The timer stops recording at 2:59 (a buffer below the backend's 3-minute cap),

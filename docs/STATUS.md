@@ -118,6 +118,29 @@ Desktop/mobile screenshots were inspected with no horizontal overflow. JavaScrip
 syntax and whitespace checks pass. The Python backend is unchanged in this fix;
 the 220/60 regression totals above are from the preceding recorder implementation.
 
+### Transcription connection and microphone feedback follow-up
+
+- A ready memo's signed-out transcription button now says **Connect to transcribe**
+  and opens an inline login form instead of staying disabled. The file-upload path
+  uses the same flow. Cancelled/failed connection and HTTP 401 preserve the audio;
+  successful login clears the key field and waits for an explicit transcription
+  click after showing the provider. No authentication or approval rule changed.
+- Added a local Web Audio input meter over the same microphone stream. Its live
+  level and sound/quiet/loud feedback come from sampled audio, not animation.
+  Quiet input warns after 2.5 seconds. Stop/cancel closes the analyser/context and
+  microphone. Unsupported meters leave recording and playback available.
+- Isolated Chrome QA at port 8128, 1280×900 and 390×844: native input meter reacted
+  to synthetic speech; a separate silent WAV stayed at zero and produced the quiet
+  warning. Connection cancel/wrong-key/success/expired-key, clip retention, no
+  automatic upload, explicit transcription, file-upload entry and unavailable
+  meter fallback passed. Real local Whisper transcribed the recorded audio;
+  correction produced a pending draft with delivery disabled. Screenshots were
+  inspected, no horizontal overflow or unexpected browser errors occurred.
+- QA scripts, screenshots and synthetic audio are under
+  `/tmp/makenomistake-audio-feedback/`, outside Git. JavaScript syntax/whitespace
+  checks pass. No physical microphone capture or new ElevenLabs request was used.
+  These are frontend changes; the earlier 220/60 Python totals were not rerun.
+
 ## Remaining live acceptance and limitations
 
 Live ElevenLabs transcription now passes the synthetic smoke test. Remaining

@@ -28,8 +28,10 @@ function buttons() {
   $("unsaved").textContent = dirty() ? "Unsaved edits. Save them before approving or delivering." : "";
   recorder.setLocked(busy, connected);
   $("voice-file").disabled = busy || recorder.active;
-  $("voice-upload").querySelector("button").disabled = busy || recorder.active || !connected;
+  $("voice-upload").querySelector("button").disabled = busy || recorder.active;
+  $("voice-upload").querySelector("button").textContent = connected ? "Transcribe recording" : "Connect to transcribe";
   $("voice-connection").hidden = connected;
+  for (const element of $("voice-connect").querySelectorAll("input, button")) element.disabled = busy;
 }
 async function run(action) {
   if (busy) return;
@@ -106,12 +108,14 @@ async function show(draft) {
   $("audit").textContent = JSON.stringify({ receipt: draft.receipt, events: await api(`/drafts/${draft.id}/audit`) }, null, 2);
   buttons();
 }
-$("login").onsubmit = e => { e.preventDefault(); run(async () => {
+async function connect(key) {
   connected = false;
-  apiKey = $("key").value.trim(); await load(); connected = true; $("key").value = "";
+  apiKey = key.trim(); await load(); connected = true;
+  $("key").value = ""; $("voice-key").value = ""; $("voice-connect").hidden = true;
   if (recorder.supported && !recorder.active && !recorder.clip) recorder.message("Ready. Press Record and allow microphone access, or upload a file below.");
   notice("Connected. Check delivery mode before reviewing a draft.");
-}); };
+}
+$("login").onsubmit = e => { e.preventDefault(); run(() => connect($("key").value)); };
 $("logout").onclick = () => location.reload();
 $("refresh").onclick = () => run(async () => { await api("/refresh", {}); await load(); notice("Evidence refreshed. Existing draft text has not changed."); });
 $("reload").onclick = () => run(async () => { await load(); notice("Reloaded."); });
@@ -156,6 +160,24 @@ function openVoice(note) {
   }
 }
 $("voice-file").onchange = () => { uploadId = null; };
+function requireVoiceConnection() {
+  if (connected) return true;
+  $("voice-connect").hidden = false;
+  $("voice-connect-status").textContent = "Enter your backend access key to connect. Your audio stays available while you connect.";
+  recorder.message("Connect below, then press Transcribe. Your audio stays available.");
+  $("voice-key").focus();
+  $("voice-connect").scrollIntoView({behavior: "smooth", block: "center"});
+  return false;
+}
+$("voice-connect").onsubmit = e => { e.preventDefault(); run(async () => {
+  $("voice-connect-status").textContent = "Connecting…";
+  try {
+    await connect($("voice-key").value);
+    const message = "Connected. Check the transcription provider above, then press Transcribe when ready.";
+    recorder.message(message); notice(message);
+  } catch (error) { $("voice-connect-status").textContent = error.message; throw error; }
+}); };
+$("voice-connect-cancel").onclick = () => { $("voice-connect").hidden = true; $("voice-key").value = ""; recorder.message("Connection cancelled. Your audio is still available."); };
 async function transcribeAudio(file, requestId) {
   if (!connected) throw new Error("Connect to the backend first.");
   if (!file || !file.size || file.size > 8 * 1024 * 1024) throw new Error("Choose a non-empty audio file up to 8 MiB.");
@@ -166,6 +188,7 @@ async function transcribeAudio(file, requestId) {
     const response = await fetch(`/api/voice?request_id=${requestId}`, {
       method: "POST", headers: {Authorization: "Bearer " + apiKey, "Content-Type": file.type || "application/octet-stream"}, body: file
     });
+    if (response.status === 401) { connected = false; requireVoiceConnection(); throw new Error("Your backend connection expired. Connect again below, then retry transcription."); }
     const result = await response.json();
     if (!response.ok) throw new Error(result.error?.message || "Transcription failed.");
     await load();
@@ -188,11 +211,11 @@ async function transcribeAudio(file, requestId) {
   } catch (error) { recorder.message(error.message + " Your audio is still available to retry."); throw error; }
 }
 $("voice-upload").onsubmit = e => { e.preventDefault();
-  if (recorder.active) return;
+  if (recorder.active || !requireVoiceConnection()) return;
   run(() => { uploadId ||= crypto.randomUUID(); return transcribeAudio($("voice-file").files[0], uploadId); });
 };
 $("voice-transcribe").onclick = () => {
-  if (!recorder.clip || recorder.active) return;
+  if (!recorder.clip || recorder.active || !requireVoiceConnection()) return;
   const {blob, requestId} = recorder.clip;
   run(() => transcribeAudio(blob, requestId));
 };

@@ -12,6 +12,8 @@ class VoiceMemoRecorder {
     this.stream = null;
     this.recorder = null;
     this.previewUrl = null;
+    this.heardAudio = false;
+    this.meterAvailable = false;
     this.supported = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia
       && typeof MediaRecorder !== "undefined";
     this.el = id => document.getElementById(id);
@@ -39,15 +41,80 @@ class VoiceMemoRecorder {
     this.el("voice-discard").disabled = this.locked && !this.active;
     this.el("voice-discard").textContent = this.active ? "Cancel recording" : "Discard recording";
     this.el("voice-preview").hidden = !this.clip;
-    this.el("voice-transcribe").disabled = this.locked || !this.connected || this.active || !this.clip;
+    this.el("voice-transcribe").disabled = this.locked || this.active || !this.clip;
+    this.el("voice-transcribe").textContent = this.connected ? "Transcribe this memo" : "Connect to transcribe";
+    this.el("voice-meter-box").hidden = !["recording", "stopping", "ready"].includes(this.phase);
   }
 
   setLocked(locked, connected) { this.locked = locked; this.connected = connected; this.render(); }
   changed() { this.render(); this.onChange(); }
 
+  signal(text, state) {
+    if (this.el("voice-signal").textContent !== text) this.el("voice-signal").textContent = text;
+    this.el("voice-meter-box").dataset.signal = state;
+  }
+
+  stopMeter() {
+    clearInterval(this.meterTick);
+    this.meterSource?.disconnect();
+    this.meterSource = null;
+    const context = this.audioContext;
+    this.audioContext = null;
+    if (context && context.state !== "closed") context.close().catch(() => {});
+    this.el("voice-level").value = 0;
+  }
+
+  startMeter(stream, generation) {
+    this.heardAudio = false;
+    this.meterAvailable = false;
+    this.signal("Listening for sound…", "quiet");
+    const unavailable = () => {
+      if (generation !== this.generation || this.phase !== "recording") return;
+      this.stopMeter();
+      this.meterAvailable = false;
+      this.signal("Level meter unavailable. Recording continues; check playback after stopping.", "unavailable");
+    };
+    try {
+      const AudioContextType = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextType) { unavailable(); return; }
+      const context = new AudioContextType();
+      this.audioContext = context;
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      const samples = new Float32Array(analyser.fftSize);
+      this.meterSource = context.createMediaStreamSource(stream);
+      this.meterSource.connect(analyser); // Never connect the microphone to speakers.
+      let lastSound = performance.now();
+      const sample = () => {
+        if (generation !== this.generation || this.phase !== "recording") return;
+        if (context.state !== "running") {
+          this.signal("Input meter paused by the browser. Check playback after stopping.", "unavailable");
+          return;
+        }
+        try {
+          analyser.getFloatTimeDomainData(samples);
+          this.meterAvailable = true;
+          let sum = 0, peak = 0;
+          for (const value of samples) { sum += value * value; peak = Math.max(peak, Math.abs(value)); }
+          const rms = Math.sqrt(sum / samples.length);
+          // Display -60 to 0 dBFS on a 0–100 scale; this is sound level, not speech recognition.
+          this.el("voice-level").value = Math.max(0, Math.min(100, (20 * Math.log10(Math.max(rms, 0.000001)) + 60) / 60 * 100));
+          if (rms > 0.004) { lastSound = performance.now(); this.heardAudio = true; }
+          if (peak >= 0.98) this.signal("Input is very loud — move slightly away from the microphone.", "loud");
+          else if (performance.now() - lastSound > 2500) this.signal("Very quiet — speak closer or check that your microphone is not muted.", "quiet");
+          else if (this.heardAudio) this.signal("Sound detected — your microphone is picking up audio.", "sound");
+          else this.signal("Listening for sound…", "quiet");
+        } catch { unavailable(); }
+      };
+      this.meterTick = setInterval(sample, 100);
+      context.resume().catch(unavailable);
+    } catch { unavailable(); }
+  }
+
   releaseMicrophone() {
     clearInterval(this.tick);
     clearTimeout(this.deadline);
+    this.stopMeter();
     this.stream?.getTracks().forEach(track => track.stop());
     this.stream = null;
   }
@@ -119,6 +186,9 @@ class VoiceMemoRecorder {
         this.previewUrl = URL.createObjectURL(blob);
         this.el("voice-playback").src = this.previewUrl;
         this.phase = "ready";
+        this.signal(this.meterAvailable
+          ? (this.heardAudio ? "Sound was detected. Listen to the preview before transcribing." : "No clear sound was detected. Check playback or record again.")
+          : "Check playback to confirm your recording contains audio.", this.heardAudio ? "sound" : "quiet");
         this.message((this.stopReason || "Recording ready.") + " Preview it, then choose Transcribe this memo.");
         this.changed();
       };
@@ -130,6 +200,7 @@ class VoiceMemoRecorder {
       this.stopReason = "";
       this.startedAt = performance.now();
       this.phase = "recording";
+      this.startMeter(stream, generation);
       this.el("voice-timer").textContent = "0:00";
       this.message("Recording… Speak your update, then press Stop recording.");
       // Leave a one-second buffer below the backend's decoded 180-second limit.

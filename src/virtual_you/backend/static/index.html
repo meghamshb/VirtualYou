@@ -34,6 +34,11 @@
     <div id="voice-recorder" class="recorder" role="group" aria-label="Record a voice memo">
       <div class="recorder-heading"><strong>Record a memo</strong><span id="voice-timer" role="timer" aria-label="Recording duration">0:00</span></div>
       <p id="voice-status" role="status">Ready. Press Record and allow microphone access.</p>
+      <div id="voice-meter-box" hidden>
+        <label for="voice-level">Microphone input</label>
+        <meter id="voice-level" min="0" max="100" low="15" high="90" optimum="60" value="0" aria-label="Microphone input level"></meter>
+        <p id="voice-signal" role="status">Listening for sound…</p>
+      </div>
       <button id="voice-start" type="button" disabled>Record</button>
       <button id="voice-stop" type="button" hidden>Stop recording</button>
       <button id="voice-discard" type="button" hidden>Discard recording</button>
@@ -44,6 +49,14 @@
       <small>Microphone audio stays in this tab until you choose Transcribe. Recording stops just before 3 minutes, or when you leave this tab.</small>
     </div>
     <p id="voice-connection"><a href="#login">Connect to the backend</a> to enable transcription. You can record, preview, or choose a file first.</p>
+    <form id="voice-connect" class="voice-connect" hidden>
+      <strong>Connect to transcribe</strong>
+      <p>Your recording stays in this tab while you connect.</p>
+      <label>Backend access key<input id="voice-key" type="password" autocomplete="off" required></label>
+      <small>Use the key from <code>virtual-you-server show-key</code>, not your ElevenLabs key.</small>
+      <button>Connect</button><button id="voice-connect-cancel" type="button">Cancel</button>
+      <p id="voice-connect-status" role="status"></p>
+    </form>
     <form id="voice-upload"><label>Or upload an audio file (up to 3 minutes / 8 MiB)
       <input id="voice-file" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav,.webm" required></label>
       <button>Transcribe recording</button></form>
