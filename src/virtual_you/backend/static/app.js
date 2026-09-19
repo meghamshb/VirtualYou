@@ -2,6 +2,11 @@
 const $ = (id) => document.getElementById(id);
 let apiKey = "", selected = null, busy = false;
 function notice(text) { $("notice").textContent = text; }
+function githubStatus(github) {
+  $("github-status").textContent = github.connected
+    ? `Connected as ${github.login || "GitHub"} · repo ${github.repo || "(set VIRTUAL_YOU_GITHUB_REPO)"}`
+    : "Not connected. Click Authorize GitHub — do not paste a token.";
+}
 async function api(path, body) {
   const response = await fetch("/api" + path, {
     method: body === undefined ? "GET" : "POST",
@@ -32,6 +37,8 @@ async function run(action) {
   finally { busy = false; buttons(); }
 }
 async function load() {
+  const github = await fetch("/github/status").then(r => r.json()).catch(() => ({connected:false}));
+  githubStatus(github);
   const [status, personas, drafts] = await Promise.all([api("/status"), api("/personas"), api("/drafts")]);
   $("status").textContent = JSON.stringify(status, null, 2);
   $("personas").textContent = personas.map(p => `${p.display_name} (${p.recipient_id}) · version ${p.version} · ${p.style.formality}`).join("\n") || "No personas yet.";
@@ -92,3 +99,4 @@ $("approve").onclick = () => run(() => act("decision", {action: "approve"}));
 $("reject").onclick = () => run(() => act("decision", {action: "reject"}));
 $("deliver").onclick = () => run(() => act("deliver"));
 buttons();
+fetch("/github/status").then(r => r.json()).then(githubStatus).catch(() => githubStatus({connected:false}));

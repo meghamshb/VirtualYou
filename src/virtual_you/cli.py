@@ -13,8 +13,9 @@ from virtual_you.contracts.activity import ActivityRecord
 from virtual_you.ingest.discover import discover_latest_session
 from virtual_you.ingest.errors import IngestionError
 from virtual_you.mcp.app import create_app
-from virtual_you.mcp.followup import answer
+from virtual_you.mcp.followup import TARGET_QUESTIONS, answer
 from virtual_you.mcp.github import RestGitHubClient
+from virtual_you.mcp.oauth import OAuthError, run_local_authorize
 from virtual_you.mcp.observations import ObservationStore
 from virtual_you.mcp.reconcile import reconcile
 
@@ -81,6 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("latest", help="show the latest sanitized activity")
     commands.add_parser("schema", help="print the ActivityRecord JSON Schema")
 
+    commands.add_parser(
+        "github-auth",
+        help="open Authorize GitHub in a browser (stores a token locally; never paste it)",
+    )
     webhook = commands.add_parser(
         "github-webhook",
         help="receive GitHub webhooks (ack, then record observations)",
@@ -94,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask = commands.add_parser(
         "github-ask",
-        help="answer a targeted GitHub follow-up from evidence",
+        help="debug: answer a targeted GitHub follow-up (ingest already records these)",
     )
     ask.add_argument("question")
     return parser
@@ -137,6 +142,8 @@ def main(
             result = ingestion_service.latest_activity()
         elif arguments.command == "schema":
             result = ActivityRecord.model_json_schema()
+        elif arguments.command == "github-auth":
+            return _run_github_auth(data_directory)
         elif arguments.command == "github-webhook":
             return _run_github_webhook(
                 data_directory,
@@ -202,6 +209,26 @@ def _data_root(data_directory: Optional[Path]) -> Path:
     return Path.home() / ".virtual-you"
 
 
+def _run_github_auth(data_directory: Optional[Path]) -> int:
+    try:
+        identity = run_local_authorize(_data_root(data_directory), os.environ)
+    except OAuthError as error:
+        print(json.dumps({"error": str(error)}), file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "connected": True,
+                "login": identity.get("login") or "",
+                "questions": list(TARGET_QUESTIONS),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _run_github_webhook(
     data_directory: Optional[Path],
     *,
@@ -229,7 +256,7 @@ def _run_github_webhook(
 
 def _run_github_reconcile(data_directory: Optional[Path]) -> dict:
     store = ObservationStore(_data_root(data_directory))
-    client = RestGitHubClient.from_env(os.environ)
+    client = RestGitHubClient.from_env(os.environ, data_directory=_data_root(data_directory))
     if client is None:
         return {"written": 0, "error": "github_unconfigured"}
     written = reconcile(store, client)
@@ -242,7 +269,7 @@ def _run_github_ask(service: Any, question: str) -> dict:
         return {"escalated": True, "text": "No activity record is stored."}
     store = ObservationStore(service._root)
     client = getattr(service, "_github_client", None) or RestGitHubClient.from_env(
-        os.environ
+        os.environ, data_directory=getattr(service, "_root", _data_root(None))
     )
     result = answer(
         question,

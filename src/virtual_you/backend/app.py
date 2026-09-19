@@ -35,6 +35,7 @@ from virtual_you.contracts.reporting import (
     RevisionRequest,
 )
 from virtual_you.ingest.errors import IngestionError
+from virtual_you.mcp.oauth import attach_oauth_routes
 
 
 class BodyLimit:
@@ -182,6 +183,8 @@ def create_app(settings=None, *, provider=None, transport=None):
     @app.get("/healthz")
     def health():
         return {"status": "ok"}
+
+    attach_oauth_routes(app, settings.data_dir)
 
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon():

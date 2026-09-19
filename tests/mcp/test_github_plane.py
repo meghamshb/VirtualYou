@@ -3,12 +3,23 @@ from hashlib import sha256
 from hmac import new as hmac_new
 from pathlib import Path
 
+import pytest
+
 from virtual_you.contracts.activity import ActivityRecord
 from virtual_you.ingest.service import IngestionService
 from virtual_you.ingest.store import ActivityRecordRepository
 from virtual_you.mcp.enrich import enrich, github_enabled
 from virtual_you.mcp.followup import ESCALATE, answer
 from virtual_you.mcp.github import CheckRun, FakeGitHubClient, GitHubSnapshot, PullRequest, RestGitHubClient, Review
+from virtual_you.mcp.oauth import (
+    OAuthError,
+    authorize_url,
+    complete_callback,
+    exchange_code,
+    load_token,
+    new_state,
+    save_token,
+)
 from virtual_you.mcp.observations import ObservationStore
 from virtual_you.mcp.reconcile import reconcile
 from virtual_you.mcp.webhooks import apply_webhook, observations_from_event, verify_signature
@@ -406,3 +417,65 @@ def test_webhook_signature_roundtrip() -> None:
     digest = hmac_new(secret.encode(), body, sha256).hexdigest()
     assert verify_signature(secret, body, "sha256=" + digest)
     assert not verify_signature(secret, body, "sha256=deadbeef")
+
+
+def test_oauth_token_store_and_from_env(tmp_path: Path) -> None:
+    save_token(tmp_path, {"access_token": "gho_stored", "login": "yash"})
+    stored = tmp_path / "github-oauth.json"
+    assert load_token(tmp_path) == "gho_stored"
+    assert stored.stat().st_mode & 0o777 == 0o600
+    client = RestGitHubClient.from_env(
+        {"VIRTUAL_YOU_GITHUB_REPO": "org/repo"},
+        data_directory=tmp_path,
+    )
+    assert client is not None
+    assert client.token == "gho_stored"
+    env_client = RestGitHubClient.from_env(
+        {"VIRTUAL_YOU_GITHUB_REPO": "org/repo", "GITHUB_TOKEN": "envtok"},
+        data_directory=tmp_path,
+    )
+    assert env_client is not None
+    assert env_client.token == "envtok"
+
+
+def test_oauth_authorize_url_and_callback(tmp_path: Path) -> None:
+    env = {
+        "GITHUB_CLIENT_ID": "iv1client",
+        "GITHUB_CLIENT_SECRET": "supersecret",
+        "GITHUB_OAUTH_REDIRECT": "http://127.0.0.1:8765/github/callback",
+    }
+    state = new_state(tmp_path)
+    url = authorize_url(state, env)
+    assert "client_id=iv1client" in url
+    assert "github.com/login/oauth/authorize" in url
+    with pytest.raises(OAuthError):
+        complete_callback(tmp_path, "code", "wrong-state", env)
+    state = new_state(tmp_path)
+
+    def post(url, fields):
+        assert fields["code"] == "abc"
+        assert "supersecret" not in url
+        return {"access_token": "gho_x", "token_type": "bearer", "scope": "public_repo"}
+
+    def get(url, authorization):
+        assert authorization == "Bearer gho_x"
+        return {"login": "yash"}
+
+    payload = exchange_code("abc", env, http_post=post, http_get=get)
+    assert payload["login"] == "yash"
+    save_token(tmp_path, payload)
+    assert load_token(tmp_path) == "gho_x"
+
+
+def test_enrich_records_manager_followups() -> None:
+    out = enrich(
+        _record(),
+        client=FakeGitHubClient([_failed_ci_snapshot()]),
+        enabled=True,
+    )
+    names = {call.name: call.result_summary for call in out.tool_calls}
+    assert "fail" in names["github.ask.ci"].lower()
+    assert CI_URL in names["github.ask.ci"] or CI_URL in names["github.ci"]
+    assert "github.ask.blocking" in names
+    assert "github.ask.after_review" in names
+

@@ -10,6 +10,12 @@ from virtual_you.mcp.work_state import Observation, for_sha
 
 ESCALATE = "I don't have a PR or commit SHA in evidence — I'll flag it for the intern to confirm."
 
+TARGET_QUESTIONS = (
+    "Did the fix pass CI?",
+    "What's blocking your PR?",
+    "What changed after my review?",
+)
+
 
 @dataclass(frozen=True)
 class FollowUpAnswer:
@@ -46,6 +52,27 @@ def answer(
     if kind == "after_review":
         return _after_review(sha, live, scoped)
     return FollowUpAnswer(text=ESCALATE, escalated=True, kind=kind)
+
+
+def answer_targets(
+    *,
+    record: Optional[ActivityRecord] = None,
+    observations: Sequence[Observation] = (),
+    client: Optional[GitHubClient] = None,
+    snapshot: Optional[GitHubSnapshot] = None,
+) -> list:
+    """Run the three manager follow-ups. Interns do not type these."""
+
+    return [
+        answer(
+            question,
+            record=record,
+            observations=observations,
+            client=client,
+            snapshot=snapshot,
+        )
+        for question in TARGET_QUESTIONS
+    ]
 
 
 def classify(question: str) -> str:

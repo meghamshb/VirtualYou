@@ -1,8 +1,11 @@
 """Read-only GitHub access: Protocol, fake, and optional REST client."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Protocol, Sequence
+from pathlib import Path
+from typing import List, Optional, Protocol, Sequence, Union
 from urllib.parse import quote
+
+from virtual_you.mcp.oauth import load_token
 
 try:
     import httpx
@@ -11,7 +14,9 @@ except ImportError:
 
 GITHUB_REPO_ENV = "VIRTUAL_YOU_GITHUB_REPO"
 GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+DATA_DIR_ENV = "VIRTUAL_YOU_DATA_DIR"
 DEFAULT_TIMEOUT = 10.0
+PathLike = Union[str, Path]
 
 
 @dataclass(frozen=True)
@@ -103,9 +108,19 @@ class RestGitHubClient:
         self._http_get = http_get
 
     @classmethod
-    def from_env(cls, environ) -> Optional["RestGitHubClient"]:
+    def from_env(
+        cls,
+        environ,
+        data_directory: Optional[PathLike] = None,
+    ) -> Optional["RestGitHubClient"]:
         repo = (environ.get(GITHUB_REPO_ENV) or "").strip()
         token = (environ.get(GITHUB_TOKEN_ENV) or "").strip()
+        if not token:
+            stored_root = data_directory
+            if stored_root is None:
+                configured = (environ.get(DATA_DIR_ENV) or "").strip()
+                stored_root = Path(configured) if configured else Path.home() / ".virtual-you"
+            token = load_token(stored_root)
         if not repo or not token:
             return None
         return cls(repo, token)

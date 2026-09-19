@@ -7,6 +7,12 @@
   <p>Draft, review, approve, deliver.</p>
   <form id="login"><label>Backend API key <input id="key" type="password" autocomplete="off" required></label><button>Connect</button><button type="button" id="logout">Disconnect</button></form>
   <p id="notice" role="status" aria-live="polite">Enter the key from <code>virtual-you-server show-key</code>. It stays in this tab's memory.</p>
+  <section>
+    <h2>GitHub</h2>
+    <p>Connect once. Ingest then records CI, PR, and review facts automatically. You do not run <code>github-ask</code>.</p>
+    <p id="github-status">Not connected</p>
+    <a id="github-authorize" href="/github/authorize">Authorize GitHub</a>
+  </section>
   <section><h2>Backend</h2><button id="refresh" type="button">Refresh evidence</button><pre id="status">Not connected</pre></section>
   <section><h2>Recipient style</h2>
     <form id="persona-form">

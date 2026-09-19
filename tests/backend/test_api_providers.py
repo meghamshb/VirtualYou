@@ -16,11 +16,28 @@ def test_api_requires_auth_but_health_and_ui_are_public(settings):
     with TestClient(create_app(settings)) as client:
         assert client.get("/healthz").status_code == 200
         assert client.get("/").status_code == 200
+        assert client.get("/github/status").status_code == 200
+        assert client.get("/github/status").json()["connected"] is False
         assert client.get("/api/status").status_code == 401
         client.headers["Authorization"] = "Bearer wrong"
         assert client.get("/api/personas").status_code == 401
         client.headers["Authorization"] = "Bearer " + KEY
         assert client.get("/api/status").status_code == 200
+
+
+def test_github_authorize_redirects_without_api_key(settings, monkeypatch):
+    monkeypatch.setenv("GITHUB_CLIENT_ID", "iv1client")
+    monkeypatch.setenv("GITHUB_CLIENT_SECRET", "supersecret")
+    monkeypatch.setenv("GITHUB_OAUTH_REDIRECT", "http://127.0.0.1:8000/github/callback")
+    with TestClient(create_app(settings), follow_redirects=False) as client:
+        response = client.get("/github/authorize")
+        assert response.status_code == 302
+        location = response.headers["location"]
+        assert "github.com/login/oauth/authorize" in location
+        assert "client_id=iv1client" in location
+        assert "supersecret" not in location
+        html = client.get("/").text
+        assert "Authorize GitHub" in html
 
 
 def test_validation_errors_never_echo_sensitive_inputs(client):

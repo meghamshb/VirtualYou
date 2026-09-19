@@ -25,6 +25,7 @@ from virtual_you.ingest.voice import VoiceTranscriptAdapter
 from virtual_you.ingest.workspace import GIT_ROOT_ENV, overlay_git_state
 from virtual_you.mcp.enrich import enrich, github_enabled
 from virtual_you.mcp.github import GitHubClient, RestGitHubClient
+from virtual_you.mcp.oauth import load_token
 from virtual_you.mcp.observations import ObservationStore
 
 
@@ -66,6 +67,9 @@ class IngestionService:
         )
         self._github_client = github_client
         self._observation_store = ObservationStore(self._root)
+        stored = load_token(self._root)
+        if stored and stored not in self._env_secrets:
+            self._env_secrets = (*self._env_secrets, stored)
 
     def ingest(
         self,
@@ -259,7 +263,9 @@ class IngestionService:
         if github_enabled():
             client = self._github_client
             if client is None:
-                client = RestGitHubClient.from_env(os.environ)
+                client = RestGitHubClient.from_env(
+                    os.environ, data_directory=self._root
+                )
             record = enrich(
                 record,
                 client=client,

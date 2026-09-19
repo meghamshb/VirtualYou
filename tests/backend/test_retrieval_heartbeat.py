@@ -14,7 +14,11 @@ from virtual_you.ingest.store import ActivityRecordRepository
 
 def test_real_ingestion_flows_through_to_review_and_delivery(client, settings):
     source = Path(__file__).parents[1] / "fixtures" / "claude_session.jsonl"
-    record = IngestionService(data_directory=settings.data_dir).ingest_file("claude", source)
+    record = IngestionService(
+        data_directory=settings.data_dir,
+        workspace_root=settings.data_dir,
+        apply_git_overlay=False,
+    ).ingest_file("claude", source)
     refreshed = client.post("/api/refresh").json()
     assert refreshed["changed"] == 1
     client.post("/api/personas", json=persona_payload())

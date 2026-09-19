@@ -8,6 +8,7 @@ from uuid import uuid4
 from virtual_you.contracts.activity import ActivityRecord, ToolCall
 from virtual_you.ingest.redact import assert_safe_serialized, redact_value
 from virtual_you.mcp.extract import extract_sha, has_edits, is_dirty
+from virtual_you.mcp.followup import answer_targets
 from virtual_you.mcp.github import GitHubClient, GitHubSnapshot
 from virtual_you.mcp.observations import ObservationStore
 from virtual_you.mcp.work_state import Observation, reduce_sentence
@@ -74,6 +75,25 @@ def enrich(
                 status="succeeded",
             )
         )
+    for followup in answer_targets(
+        record=record,
+        observations=observations,
+        snapshot=snapshot,
+        client=None if snapshot is not None else client,
+    ):
+        ask_id = "github.ask.{}:{}".format(followup.kind, sha or record.session_id)
+        if ask_id in existing:
+            continue
+        calls.append(
+            ToolCall(
+                call_id=ask_id,
+                name="github.ask.{}".format(followup.kind),
+                input_summary=followup.kind,
+                result_summary=followup.text[:1500],
+                status="succeeded" if not followup.escalated else "unknown",
+            )
+        )
+        existing.add(ask_id)
 
     payload = record.model_dump()
     payload["tool_calls"] = [call.model_dump() for call in calls]
