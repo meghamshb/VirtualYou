@@ -44,13 +44,14 @@ class DirtyPath:
 
 @dataclass(frozen=True)
 class WorkspaceSnapshot:
+    sha: str
     short_sha: str
     subject: str
     files: Tuple[DirtyPath, ...]
 
     @property
     def start_state(self) -> str:
-        lines = ["HEAD {} {}".format(self.short_sha, self.subject).rstrip()]
+        lines = ["HEAD {} {}".format(self.sha, self.subject).rstrip()]
         for item in self.files:
             if item.in_head:
                 lines.append("{} @ HEAD".format(item.path))
@@ -108,7 +109,10 @@ def read_workspace_snapshot(
     root = resolve_git_root(workspace_root)
     if root is None:
         return None
+    full = _run_git(root, "rev-parse", "HEAD")
     short = _run_git(root, "rev-parse", "--short", "HEAD")
+    if full.returncode != 0 or not full.stdout.strip():
+        return None
     if short.returncode != 0 or not short.stdout.strip():
         return None
     subject = _run_git(root, "log", "-1", "--format=%s")
@@ -140,6 +144,7 @@ def read_workspace_snapshot(
             break
 
     return WorkspaceSnapshot(
+        sha=full.stdout.strip(),
         short_sha=short.stdout.strip(),
         subject=subject.stdout.strip(),
         files=tuple(files),

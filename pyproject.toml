@@ -24,6 +24,11 @@ dev = [
   "httpx>=0.27,<1",
   "ruff>=0.9,<1",
 ]
+github = [
+  "httpx>=0.27,<1",
+  "starlette>=0.38,<1",
+  "uvicorn>=0.30,<1",
+]
 
 [project.scripts]
 virtual-you = "virtual_you.cli:main"

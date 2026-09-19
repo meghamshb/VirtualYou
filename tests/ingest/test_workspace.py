@@ -77,6 +77,9 @@ def test_overlay_snapshots_dirty_and_untracked_files(tmp_path: Path) -> None:
     snapshot = read_workspace_snapshot(repo)
     assert snapshot is not None
     assert snapshot.start_state.startswith("HEAD ")
+    assert len(snapshot.sha) == 40
+    assert snapshot.sha in snapshot.start_state
+    assert snapshot.short_sha
     assert "add tracked" in snapshot.start_state
     assert "tracked.py @ HEAD" in snapshot.start_state
     assert "new.py untracked" in snapshot.start_state

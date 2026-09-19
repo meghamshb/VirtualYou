@@ -23,6 +23,9 @@ from virtual_you.ingest.redact import assert_safe_serialized, redact_value
 from virtual_you.ingest.store import ActivityRecordRepository
 from virtual_you.ingest.voice import VoiceTranscriptAdapter
 from virtual_you.ingest.workspace import GIT_ROOT_ENV, overlay_git_state
+from virtual_you.mcp.enrich import enrich, github_enabled
+from virtual_you.mcp.github import GitHubClient, RestGitHubClient
+from virtual_you.mcp.observations import ObservationStore
 
 
 PathLike = Union[str, Path]
@@ -42,6 +45,7 @@ class IngestionService:
         workspace_root: Optional[PathLike] = None,
         latest_work_only: bool = True,
         apply_git_overlay: bool = True,
+        github_client: Optional[GitHubClient] = None,
     ) -> None:
         configured_root = data_directory or os.environ.get("VIRTUAL_YOU_DATA_DIR")
         root = Path(configured_root or Path.home() / ".virtual-you")
@@ -60,6 +64,8 @@ class IngestionService:
             if env_secrets is not None
             else discover_env_secrets(env_search_root)
         )
+        self._github_client = github_client
+        self._observation_store = ObservationStore(self._root)
 
     def ingest(
         self,
@@ -250,6 +256,16 @@ class IngestionService:
             existing = self._repository.get(record.session_id)
             if existing is not None:
                 record = self._merge_records(existing, record)
+        if github_enabled():
+            client = self._github_client
+            if client is None:
+                client = RestGitHubClient.from_env(os.environ)
+            record = enrich(
+                record,
+                client=client,
+                store=self._observation_store,
+                extra_secrets=self._env_secrets,
+            )
         assert_safe_serialized(record, extra_secrets=self._env_secrets)
         return self._repository.save(record)
 

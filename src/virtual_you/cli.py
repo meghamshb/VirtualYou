@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 from importlib import import_module
@@ -11,6 +12,16 @@ from typing import Any, Callable, NoReturn, Optional, Sequence
 from virtual_you.contracts.activity import ActivityRecord
 from virtual_you.ingest.discover import discover_latest_session
 from virtual_you.ingest.errors import IngestionError
+from virtual_you.mcp.app import create_app
+from virtual_you.mcp.followup import answer
+from virtual_you.mcp.github import RestGitHubClient
+from virtual_you.mcp.observations import ObservationStore
+from virtual_you.mcp.reconcile import reconcile
+
+try:
+    import uvicorn
+except ImportError:
+    uvicorn = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,6 +80,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("latest", help="show the latest sanitized activity")
     commands.add_parser("schema", help="print the ActivityRecord JSON Schema")
+
+    webhook = commands.add_parser(
+        "github-webhook",
+        help="receive GitHub webhooks (ack, then record observations)",
+    )
+    webhook.add_argument("--host", default="127.0.0.1")
+    webhook.add_argument("--port", type=int, default=8080)
+
+    commands.add_parser(
+        "github-reconcile",
+        help="fetch missed GitHub events for known SHAs (does not send)",
+    )
+    ask = commands.add_parser(
+        "github-ask",
+        help="answer a targeted GitHub follow-up from evidence",
+    )
+    ask.add_argument("question")
     return parser
 
 
@@ -109,6 +137,16 @@ def main(
             result = ingestion_service.latest_activity()
         elif arguments.command == "schema":
             result = ActivityRecord.model_json_schema()
+        elif arguments.command == "github-webhook":
+            return _run_github_webhook(
+                data_directory,
+                host=arguments.host,
+                port=arguments.port,
+            )
+        elif arguments.command == "github-reconcile":
+            result = _run_github_reconcile(data_directory)
+        elif arguments.command == "github-ask":
+            result = _run_github_ask(ingestion_service, arguments.question)
         else:
             _assert_never(arguments.command)
     except IngestionError as error:
@@ -153,6 +191,70 @@ def _resolve_source_path(
         return discover(arguments.source)
     parser.error("provide a path or --latest")
     raise AssertionError("argparse.error always exits")
+
+
+def _data_root(data_directory: Optional[Path]) -> Path:
+    if data_directory is not None:
+        return data_directory
+    configured = os.environ.get("VIRTUAL_YOU_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".virtual-you"
+
+
+def _run_github_webhook(
+    data_directory: Optional[Path],
+    *,
+    host: str,
+    port: int,
+) -> int:
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        print(
+            json.dumps({"error": "GITHUB_WEBHOOK_SECRET is required"}),
+            file=sys.stderr,
+        )
+        return 1
+    if uvicorn is None:
+        print(
+            json.dumps({"error": "Install virtual-you-ingest[github] to serve webhooks"}),
+            file=sys.stderr,
+        )
+        return 1
+    store = ObservationStore(_data_root(data_directory))
+    app = create_app(store, secret)
+    uvicorn.run(app, host=host, port=port)
+    return 0
+
+
+def _run_github_reconcile(data_directory: Optional[Path]) -> dict:
+    store = ObservationStore(_data_root(data_directory))
+    client = RestGitHubClient.from_env(os.environ)
+    if client is None:
+        return {"written": 0, "error": "github_unconfigured"}
+    written = reconcile(store, client)
+    return {"written": written}
+
+
+def _run_github_ask(service: Any, question: str) -> dict:
+    record = service.latest_activity()
+    if record is None:
+        return {"escalated": True, "text": "No activity record is stored."}
+    store = ObservationStore(service._root)
+    client = getattr(service, "_github_client", None) or RestGitHubClient.from_env(
+        os.environ
+    )
+    result = answer(
+        question,
+        record=record,
+        observations=store.all(),
+        client=client,
+    )
+    return {
+        "escalated": result.escalated,
+        "kind": result.kind,
+        "text": result.text,
+    }
 
 
 def _create_service(
