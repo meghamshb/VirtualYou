@@ -1,0 +1,11 @@
+.git
+.venv
+.virtual-you
+.env
+.env.*
+*.sqlite3*
+**/soul.md
+**/__pycache__
+.pytest_cache
+.coverage
+work

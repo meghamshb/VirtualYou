@@ -1,4 +1,24 @@
-# Virtual You — Pathway 1 Ingestion
+# Virtual You
+
+Members 2–3's FastAPI backend is now available: recipient personas, searchable
+activity with a refresh heartbeat, drafting, approval, Slack/Discord delivery,
+and a minimal review page. See **[BACKEND.md](BACKEND.md)** for setup, API
+contracts, Member 1/4 handoffs, deployment, and known limits.
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[backend,dev]'
+cp .env.example .env
+.venv/bin/virtual-you-server seed-demo
+.venv/bin/virtual-you-server serve
+```
+
+Open `http://127.0.0.1:8000`; get the local review key with
+`.venv/bin/virtual-you-server show-key`. Demo generation and simulated delivery
+are the defaults. No Slack/Discord messages are sent until live delivery is
+configured and a specific draft is reviewed, approved, and explicitly delivered.
+
+## Pathway 1 Ingestion
 
 This repository currently implements Member 1's ingestion boundary:
 
@@ -145,5 +165,7 @@ Run the acceptance suite:
 .venv/bin/pytest --cov=virtual_you --cov-report=term-missing
 ```
 
-Persona generation, LLM drafting, approval, Slack/Discord delivery,
-speech-to-text, and MCP enrichment are intentionally outside this pathway.
+Persona generation, LLM drafting, approval, and Slack/Discord delivery are
+implemented separately in `virtual_you.backend`; they consume this ingestion
+boundary. Speech-to-text, standing chatbot listeners, and MCP enrichment remain
+outside the ingestion/backend work described here.
