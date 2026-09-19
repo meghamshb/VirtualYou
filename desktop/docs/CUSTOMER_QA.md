@@ -52,3 +52,22 @@ were fixtures; native unconfigured service state remains honest.
 The additional GitHub/Jira integration test confirms both sources appear in the
 actual backend draft, approval delivers through the existing gateway, and removing
 a Jira selection retracts that evidence. Provider HTTP calls remain fixtures.
+
+## Onboarding release follow-up
+
+Verified after adding readiness and release gates:
+
+- 20 hosted tests passed, including missing required configuration and optional-provider behavior.
+- 18 desktop tests and 2 release-preflight cases passed; TypeScript/build/ESLint passed.
+- Native Electron smoke passed: isolated renderer, onboarding preview, restart persistence,
+  and simulated approval. This remains a fixture test, not live customer authorization.
+- Built `Dockerfile.customer` and ran the service in Docker with disposable data and test
+  credentials. `/healthz` returned 200; `/readyz` returned 503 when unconfigured and 200
+  with required settings. HTTP device pairing and signed Slack URL verification passed.
+  No provider was actually authorized and no message was sent by these container tests.
+- Production Compose configuration validates, including the HTTPS proxy and persistent volumes.
+- Customer packaging correctly refuses the currently empty `desktop/service.json`.
+- Only an Apple Development identity was present locally. No Developer ID signed/notarized
+  customer installer was produced. No production origin or cloud account was supplied.
+- The app branch now includes the develop fixes for scoped recent retrieval, corrected
+  group replies, citations, and Slack formatting. Hosted GitHub/Jira/Drive source scope remains intact.

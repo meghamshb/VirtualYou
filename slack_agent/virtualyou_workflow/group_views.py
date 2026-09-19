@@ -4,6 +4,7 @@ import json
 
 from virtual_you.backend.errors import ServiceError
 
+from .formatting import formatted_section
 from .groups import GROUP_STYLES, SOURCES
 from .learning import button, select
 from .setup_views import choices, modal, multi_select, text_input
@@ -17,7 +18,11 @@ def group_reason(reason):
             "a specific question, such as: What changed in the VirtualYou ingestion pipeline? "
             "A greeting such as 'Yo' does not identify work to report. No reply was sent."
         )
-    return reason
+    return {
+        "automatic_review_required": "Held for owner review; see the draft and evidence below.",
+        "automatic_check_failed": "Automatic validation failed. No project answer was sent.",
+        "invalid_citation": "The model returned an invalid source reference. No project answer was sent.",
+    }.get(reason, reason)
 
 
 def group_blocks(groups):
@@ -53,14 +58,16 @@ def group_blocks(groups):
             section(
                 f"Group question in {request['channel']} from {request['requester']} · {request['state']}\n{request['question']}\n{group_reason(request.get('reason', ''))}"
                 + (
-                    "\nAwaiting owner approval; nothing has been sent."
+                    ("\nAwaiting owner approval; only a review-status notice was sent." if request.get("notice_state") == "sent" else "\nAwaiting owner approval; no answer has been sent.")
                     if request["state"] == "pending"
                     else ""
                 )
             )
         )
+        if request.get("review_reason"):
+            blocks.append(section("Automatic review: " + request["review_reason"]))
         if request["state"] == "pending":
-            blocks.append(section(request["result"]["text"][:2500]))
+            blocks.append(formatted_section(request["result"]["text"][:2500]))
             quotes = [
                 c["quote"]
                 for p in request["result"].get("paragraphs", [])

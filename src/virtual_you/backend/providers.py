@@ -27,6 +27,9 @@ class HttpProvider:
         self.name = settings.provider + ":" + settings.model
 
     async def generate(self, *, task, system, user, schema):
+        schema_text = json.dumps(schema)
+        if schema_text not in system:
+            system += "\nRequired JSON response schema: " + schema_text
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         try:
             if self.settings.provider == "openai":

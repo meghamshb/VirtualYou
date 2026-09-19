@@ -1,5 +1,7 @@
 import json
 
+from .formatting import formatted_section
+
 
 def plain(text):
     return {"type": "plain_text", "text": str(text), "emoji": True}
@@ -168,7 +170,7 @@ def draft_blocks(draft, recipient, live):
         ),
     ]
     # Every character of the reviewed text is visible; no truncated approval preview.
-    blocks += [section(draft["text"][i : i + 2800]) for i in range(0, len(draft["text"]), 2800)]
+    blocks += [formatted_section(draft["text"][i : i + 2800]) for i in range(0, len(draft["text"]), 2800)]
     if draft.get("latest_activity_at"):
         blocks.append(
             {

@@ -182,7 +182,8 @@ class RetrievalService:
             join = "JOIN activity_search ON activity_search.rowid=a.id"
             predicates.append("activity_search MATCH ?")
             params.append(" OR ".join('"' + token + '"' for token in tokens))
-            order = "bm25(activity_search), a.ended_at DESC"
+            order = ("a.ended_at DESC, bm25(activity_search)" if request.sort == "recent"
+                     else "bm25(activity_search), a.ended_at DESC")
         if request.project_ids is not None:
             if not request.project_ids:
                 return []
@@ -263,7 +264,8 @@ class RetrievalService:
             matches = len(terms & tokens)
             # For reports, favor results and recorded rationale before patches.
             priority = 1 if item.field in {"end_state", "start_state", "reasoning_summary"} else 0
-            return (matches, priority, item.ended_at)
+            return ((item.ended_at, priority, matches) if request.sort == "recent"
+                    else (matches, priority, item.ended_at))
 
         candidates.sort(key=score, reverse=True)
         # Preserve human-readable outcomes alongside matching code chunks so

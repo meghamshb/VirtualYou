@@ -186,3 +186,20 @@ def test_project_subfolders_assign_future_records_and_filters_deny_empty(client,
     assert not retrieval.search(RetrievalRequest(project_ids=[]))
     assert not retrieval.search(RetrievalRequest(sources=[]))
     assert not retrieval.search(RetrievalRequest(project_ids=["Other project"]))
+
+
+def test_recent_search_keeps_scope_and_prefers_new_commit(client, record):
+    import copy
+
+    from virtual_you.contracts.reporting import RetrievalRequest
+    retrieval = client.app.state.retrieval
+    for session, date, project in [('old', '2026-09-01', 'allowed'), ('new', '2026-09-02', 'allowed'), ('private', '2026-09-03', 'private')]:
+        value = copy.deepcopy(record)
+        value['session_id'] = session
+        value['timestamp_range'] = {'started_at': date+'T00:00:00Z', 'ended_at': date+'T01:00:00Z'}
+        value['end_state'] = 'Recorded commit: '+session
+        retrieval.upsert(value)
+        retrieval.assign_project([session], project)
+    request = RetrievalRequest(query='commit', project_ids=['allowed'], sort='recent', limit=1)
+    assert retrieval.search(request)[0]['record']['session_id'] == 'new'
+    assert {e.session_id for e in retrieval.evidence(request)} == {'new'}

@@ -54,6 +54,7 @@ class PersonaProfile(Contract):
 
 
 class RetrievalRequest(Contract):
+    sort: Literal["relevance", "recent"] = "relevance"
     query: str = Field(default="", max_length=1000)
     session_ids: list[str] = Field(default_factory=list, max_length=20)
     project_ids: Optional[list[str]] = Field(default=None, max_length=100)

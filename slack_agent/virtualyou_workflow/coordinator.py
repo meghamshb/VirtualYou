@@ -139,8 +139,9 @@ class Coordinator(Member4, Experience):
             error=self.state.latest_error(),
         )
         from .group_views import group_blocks
-        extra = self.member4_blocks() + group_blocks(self.groups)
-        view["blocks"] = view["blocks"][:100 - len(extra)] + extra
+        extra = (group_blocks(self.groups) + self.member4_blocks())[:80]
+        # Keep setup controls, then recent group activity above old DM drafts.
+        view["blocks"] = view["blocks"][:min(8, 100 - len(extra))] + extra + view["blocks"][8:100 - len(extra)]
         return view
 
     def publish_home(self):
@@ -380,7 +381,7 @@ class Coordinator(Member4, Experience):
         try:
             await asyncio.to_thread(self.publish_home)
         except Exception:
-            pass  # Home will refresh on the next user interaction.
+            logging.getLogger(__name__).warning("Slack Home refresh failed; retry on next interaction.")
         return True
 
     def plan_automatic(self):

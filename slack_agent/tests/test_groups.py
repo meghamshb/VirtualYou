@@ -539,3 +539,78 @@ def test_review_notice_respects_disabled_auto_and_membership(group):
     with pytest.raises(ServiceError):
         g.review_notice(key)
     assert not calls
+
+
+def test_malformed_automatic_review_is_explicit_failure(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    original = model.generate
+    async def invalid(**kwargs):
+        if kwargs['task'] == 'group_auto_review':
+            return {'approved': True}
+        return await original(**kwargs)
+    model.generate = invalid
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert g.get(key)['reason'] == 'automatic_check_failed'
+    assert not calls
+
+
+def test_home_explains_review_and_notice(group):
+    from virtualyou_workflow.group_views import group_blocks
+    g, *_ = group
+    configure(g)
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    value = g.get(key)
+    value.update(review_reason='The PR is not identified.', notice_state='sent')
+    g.save(value)
+    rendered = json.dumps(group_blocks(g))
+    assert 'The PR is not identified.' in rendered
+    assert 'only a review-status notice was sent' in rendered
+    assert 'nothing has been sent' not in rendered
+
+
+def test_home_keeps_latest_group_questions_above_old_drafts(group):
+    g, *_ = group
+    configure(g)
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    blocks = g.c.home()['blocks']
+    assert len(blocks) <= 100
+    index = next(i for i, b in enumerate(blocks) if b.get('text', {}).get('text', '').startswith('Group question'))
+    assert index < 15
+
+
+def test_auto_review_repairs_once_and_rechecks_before_send(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    original = model.generate
+    reviews = []
+    feedback = []
+    async def corrected(**kwargs):
+        if kwargs['task'] == 'group_auto_review':
+            reviews.append(True)
+            return {'eligible': len(reviews) == 2, 'reason': 'Remove the unsupported test claim.' if len(reviews) == 1 else 'Supported by recorded changes.'}
+        data = json.loads(kwargs['user'])
+        feedback.append(data.get('validation_feedback'))
+        return await original(**kwargs)
+    model.generate = corrected
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert len(reviews) == 2
+    assert any('unsupported test claim' in (f or '') for f in feedback)
+    assert g.get(key)['review_revisions'] == 1
+    assert g.get(key)['state'] == 'sent'
+    assert len(calls) == 1
+
+
+def test_repeated_review_rejection_stops_after_one_revision(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    model.eligible = False
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert sum(task == 'group_auto_review' for task, data in prompts) == 2
+    assert g.get(key)['state'] == 'pending'
+    assert not calls
