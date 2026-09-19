@@ -39,3 +39,10 @@ dist/
 **/soul.md
 admin.key
 work/
+
+# Desktop build artifacts.
+node_modules/
+desktop/dist-electron/
+desktop/release/
+desktop/playwright-report/
+desktop/test-results/
