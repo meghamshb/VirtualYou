@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+from pathlib import PurePath
 from urllib.parse import urljoin, urlparse
 from uuid import NAMESPACE_URL, uuid5
 
@@ -59,12 +60,14 @@ class Member4:
             return False
         if self.preferences().get("paused"):
             return False
-        # Only a signed owner event in the bot's DM can initiate an audio download.
+        # Slack's single authorization entry may identify the user even for the
+        # bot DM. Verify the conversation with the bot token in the worker before
+        # downloading; do not infer bot access from the truncated event envelope.
         if (
             event.get("user") == self.config.owner_id
             and event.get("files")
             and event.get("channel_type") == "im"
-            and any(a.get("is_bot") for a in body.get("authorizations", []))
+            and re.fullmatch(r"D[A-Z0-9]+", event.get("channel", ""))
             and not any(
                 event.get("channel") == p.get("human_channel") for p in self.state.recipients()
             )
@@ -76,7 +79,9 @@ class Member4:
             for file in event["files"][:3]:
                 if re.fullmatch(r"F[A-Z0-9]+", file.get("id", "")):
                     self.state.enqueue(
-                        "voice_upload", {"file_id": file["id"]}, "voice:" + file["id"]
+                        "voice_upload",
+                        {"file_id": file["id"], "channel": event["channel"]},
+                        "voice:" + file["id"],
                     )
             return True
         if event.get("subtype") or not event.get("text", "").strip():
@@ -122,9 +127,27 @@ class Member4:
 
     async def download_voice(self, file_id):
         file = (await asyncio.to_thread(slack_call, self.bot().files_info, file=file_id))["file"]
-        if file.get("user") != self.config.owner_id or not file.get("mimetype", "").startswith(
-            "audio/"
-        ):
+        mime = file.get("mimetype", "")
+        # Slack may classify AIFF/WAV uploads as generic binary. The extension is
+        # only an admission hint: the bounded audio decoder must still validate it.
+        audio = mime.startswith("audio/") or (
+            mime == "application/octet-stream"
+            and PurePath(file.get("name", "")).suffix.lower()
+            in {
+                ".wav",
+                ".mp3",
+                ".m4a",
+                ".ogg",
+                ".oga",
+                ".opus",
+                ".webm",
+                ".aac",
+                ".aiff",
+                ".aif",
+                ".flac",
+            }
+        )
+        if file.get("user") != self.config.owner_id or not audio:
             raise ServiceError(
                 "unsupported_voice_file", "Upload an audio recording you own to your VirtualYou DM."
             )
@@ -164,6 +187,14 @@ class Member4:
 
     async def prepare_voice(self, job):
         self.require_voice_enabled()
+        channel_id = job["payload"].get("channel")
+        if not channel_id:
+            raise ServiceError("voice_channel_required", "Share the audio in your VirtualYou DM.")
+        channel = (
+            await asyncio.to_thread(slack_call, self.bot().conversations_info, channel=channel_id)
+        ).get("channel", {})
+        if not channel.get("is_im") or channel.get("user") != self.config.owner_id:
+            raise ServiceError("voice_channel_required", "Share the audio in your VirtualYou DM.")
         file_id = job["payload"]["file_id"]
         await self.backend.voice.upload(
             await self.download_voice(file_id), "slack:" + self.config.team_id + ":" + file_id

@@ -283,3 +283,90 @@ def test_voice_scope_guard_survives_backend_only_restart(tmp_path):
         assert (
             response.status_code == 409 and response.json()["error"]["code"] == "audience_changed"
         )
+
+
+@pytest.mark.parametrize("is_bot", [False, True])
+def test_owner_audio_uses_verified_bot_dm_not_single_event_authorization(setup, is_bot):
+    c, _, _ = setup
+    ready(c)
+    stub_transcription(c)
+    verified = []
+    downloaded = []
+    c.bot = lambda: SimpleNamespace(
+        conversations_info=lambda **kwargs: (
+            verified.append(kwargs["channel"]) or {"channel": {"is_im": True, "user": "UOWNER"}}
+        )
+    )
+
+    async def download(file_id):
+        assert verified == ["DOWNER"]
+        downloaded.append(file_id)
+        return b"synthetic-audio"
+
+    c.download_voice = download
+    event = message(user="UOWNER", channel="DOWNER", files=[{"id": "F123"}], subtype="file_share")
+    body = {"team_id": "TTEAM", "authorizations": [{"is_bot": is_bot}]}
+    assert c.receive_member4(event, body)
+    job = c.state.claim("voice")
+    asyncio.run(c.prepare_voice(job))
+    assert downloaded == ["F123"]
+    assert c.backend.voice.list_notes()[0]["status"] == "needs_review"
+    assert c.backend.store.list_drafts() == []
+
+
+@pytest.mark.parametrize(
+    "channel", [{"is_im": False, "user": "UOWNER"}, {"is_im": True, "user": "UOTHER"}]
+)
+def test_owner_audio_in_other_conversations_is_rejected_before_download(setup, channel):
+    c, _, _ = setup
+    ready(c)
+    c.bot = lambda: SimpleNamespace(conversations_info=lambda **kwargs: {"channel": channel})
+
+    async def forbidden(file_id):
+        pytest.fail("Do not download a file outside the owner's verified bot DM")
+
+    c.download_voice = forbidden
+    event = message(user="UOWNER", channel="DUNKNOWN", files=[{"id": "F123"}])
+    assert c.receive_member4(event, {"team_id": "TTEAM", "authorizations": [{"is_bot": False}]})
+    with pytest.raises(ServiceError, match="VirtualYou DM"):
+        asyncio.run(c.prepare_voice(c.state.claim("voice")))
+    assert c.backend.voice.list_notes() == []
+
+
+def test_slack_generic_binary_audio_still_passes_actual_decoder(setup, monkeypatch):
+    import io
+    import wave
+
+    import httpx
+    from virtual_you.backend.voice import decode_audio
+
+    c, _, _ = setup
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as stream:
+        stream.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        stream.writeframes(b"\x00\x00" * 1600)
+    c.bot = lambda: SimpleNamespace(
+        files_info=lambda **kwargs: {
+            "file": {
+                "user": "UOWNER",
+                "mimetype": "application/octet-stream",
+                "name": "memo.wav",
+                "url_private": "https://files.slack.com/private-audio",
+                "size": len(audio.getvalue()),
+            }
+        }
+    )
+    original = httpx.AsyncClient
+
+    def response(request):
+        assert request.url.host == "files.slack.com"
+        assert request.headers["Authorization"] == "Bearer bot-token"
+        return httpx.Response(200, content=audio.getvalue())
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(response), **kwargs),
+    )
+    content = asyncio.run(c.download_voice("F123"))
+    assert len(decode_audio(content)) == 1600
