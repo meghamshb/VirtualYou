@@ -100,3 +100,9 @@ startup. Check the actual interpreter with
 Python package alone does not update the SQLite library linked to that interpreter.
 The local service uses an isolated Python 3.13.14 runtime with SQLite 3.53.1.
 Upstream fix: https://sqlite.org/releaselog/3_51_2.html
+
+When a tagged question in automatic mode cannot pass the evidence review, the app
+posts one fixed **needs review** notice in the original thread. It does not publish
+the withheld draft or its sources. The notice respects the current audience,
+membership, approval-mode revocation and duplicate-send checks. Its receipt is
+audited separately; it never advances the last-shared-progress watermark.

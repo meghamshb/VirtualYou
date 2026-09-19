@@ -495,3 +495,47 @@ def test_mention_ignores_ambient_ambiguous_bot_and_private_messages(group, chang
     event.update(changes)
     assert g.receive_mention(event, team) is None
     assert not g.requests()
+
+
+def test_held_tagged_answer_posts_only_fixed_notice_once(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    model.eligible = False
+    event = dict(
+        channel_type="channel",
+        channel="CTEST",
+        user="UASKER",
+        ts="100.1",
+        text="<@UOWNER> What is the status?",
+    )
+    key = g.receive_mention(event, "TTEAM")
+    asyncio.run(g.prepare(key))
+    assert g.get(key)["state"] == "pending"
+    assert g.get(key)["review_reason"] == "checked"
+    assert g.get(key)["notice_state"] == "sent"
+    assert len(calls) == 1
+    assert "couldn't verify an answer" in calls[0]["text"]
+    assert g.get(key)["result"]["text"] not in calls[0]["text"]
+    g.review_notice(key)
+    assert len(calls) == 1
+
+
+def test_review_notice_respects_disabled_auto_and_membership(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=False)
+    key = g.receive_mention(
+        dict(
+            channel_type="channel",
+            channel="CTEST",
+            user="UASKER",
+            ts="100.1",
+            text="<@UOWNER> status?",
+        ),
+        "TTEAM",
+    )
+    asyncio.run(g.prepare(key))
+    assert not calls
+    configure(g, automatic=True)
+    with pytest.raises(ServiceError):
+        g.review_notice(key)
+    assert not calls

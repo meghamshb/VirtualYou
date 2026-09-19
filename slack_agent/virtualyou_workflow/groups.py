@@ -7,7 +7,7 @@ import json
 import re
 import threading
 import time
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from virtual_you.backend.errors import ServiceError
 from virtual_you.backend.persona import PersonaService
@@ -247,7 +247,9 @@ class GroupConversations:
         # Code/quoted examples are not a direct invocation. Multiple tagged people
         # are ambiguous; require a question addressed to this owner alone.
         directed = re.sub(r"```[\s\S]*?```|`[^`]*`", "", text)
-        directed = "\n".join(line for line in directed.splitlines() if not line.lstrip().startswith(">"))
+        directed = "\n".join(
+            line for line in directed.splitlines() if not line.lstrip().startswith(">")
+        )
         mentions = set(re.findall(r"<@([UW][A-Z0-9]+)(?:\|[^>]+)?>", directed))
         if mentions != {self.c.config.owner_id}:
             return None
@@ -496,6 +498,7 @@ class GroupConversations:
                         value["result"]["text"],
                         re.I,
                     )
+                    value["review_reason"] = redact_text(str(check.get("reason", "")))[:1000]
                     value["reason"] = (
                         "eligible" if value["auto_eligible"] else "automatic_review_required"
                     )
@@ -511,6 +514,84 @@ class GroupConversations:
                     state="needs_review", reason=getattr(error, "code", "group_preparation_failed")
                 )
                 self.save(value)
+
+        finally:
+            # Only a tagged question in automatic mode may get a fixed status reply.
+            # Never disclose the withheld model answer or its evidence here.
+            try:
+                await asyncio.to_thread(self.review_notice, key)
+            except Exception:
+                pass  # Scope/membership failure must not produce a public message.
+
+    def review_notice(self, key):
+        value = self.get(key)
+        if value.get("trigger") != "mention" or value["state"] not in {"pending", "needs_review"}:
+            return
+        if value.get("notice_state"):
+            return
+        policy = self.current(value)
+        if not policy["automatic"] or policy["auto_epoch"] != value["auto_epoch"]:
+            return
+        client = self.client()
+        if self.conversation(client, value["channel"], value["requester"]) != policy["members"]:
+            return
+        with self.lock, self.c.backend.store.connection(write=True) as db:
+            current = json.loads(
+                db.execute(
+                    "SELECT payload FROM group_policies WHERE channel=?", (value["channel"],)
+                ).fetchone()[0]
+            )
+            latest = json.loads(
+                db.execute("SELECT payload FROM group_requests WHERE id=?", (key,)).fetchone()[0]
+            )
+            if (
+                latest.get("notice_state")
+                or latest["state"] not in {"pending", "needs_review"}
+                or not current["enabled"]
+                or not current["automatic"]
+                or current["revision"] != value["revision"]
+                or current["auto_epoch"] != value["auto_epoch"]
+                or self.c.preferences().get("paused")
+            ):
+                return
+            latest["notice_state"] = "dispatch_claimed"
+            db.execute("UPDATE group_requests SET payload=? WHERE id=?", (json.dumps(latest), key))
+            self.audit(
+                db,
+                "review_notice_claimed",
+                {"id": key, "channel": value["channel"], "thread": value["thread"]},
+            )
+        text = (
+            f"VirtualYou for {self.owner_name} · needs review\n"
+            "I received your question, but I couldn't verify an answer from the project records. "
+            "I've queued this for owner review. For a commit-specific update, please include "
+            "the commit hash or describe the change you mean."
+        )
+        outcome, receipt = "simulated", None
+        if self.c.backend.settings.live_delivery:
+            try:
+                response = client.chat_postMessage(
+                    channel=value["channel"],
+                    thread_ts=value["thread"],
+                    text=html.escape(text, quote=False),
+                    mrkdwn=False,
+                    parse="none",
+                    link_names=False,
+                    unfurl_links=False,
+                    unfurl_media=False,
+                    client_msg_id=str(uuid5(NAMESPACE_URL, "review-notice:" + key)),
+                )
+                receipt = response.get("ts")
+                outcome = "sent" if receipt else "delivery_unknown"
+            except Exception:
+                outcome = "delivery_unknown"
+        with self.c.backend.store.connection(write=True) as db:
+            latest = json.loads(
+                db.execute("SELECT payload FROM group_requests WHERE id=?", (key,)).fetchone()[0]
+            )
+            latest.update(notice_state=outcome, notice_ts=receipt)
+            db.execute("UPDATE group_requests SET payload=? WHERE id=?", (json.dumps(latest), key))
+            self.audit(db, "review_notice_outcome", {"id": key, "state": outcome, "ts": receipt})
 
     async def send(self, key, *, automatic=False, actor=None):
         if not automatic and actor != self.c.config.owner_id:
