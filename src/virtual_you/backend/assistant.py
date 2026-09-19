@@ -125,6 +125,9 @@ class AssistantService:
         context=None,
         blocked_reason=None,
         thread_context=None,
+        conversation_history=None,
+        delivered_evidence_refs=None,
+        has_prior_delivery=False,
     ):
         validate_request_id(request_id)
         question = redact_text(question)[:4000]
@@ -186,6 +189,11 @@ class AssistantService:
                     scope=scope,
                     style=style,
                     **({"thread_context": thread_context} if thread_context else {}),
+                    **({
+                        "conversation_history": conversation_history,
+                        "delivered_evidence_refs": delivered_evidence_refs,
+                        "has_prior_delivery": has_prior_delivery,
+                    } if conversation_history is not None else {}),
                 )
             except ServiceError as error:
                 return self.escalate(value, error.code)

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -161,6 +162,57 @@ def test_unsupported_model_claim_fails_before_approval(settings):
     with pytest.raises(ServiceError) as error:
         asyncio.run(engine.reply(question="status", scope=RetrievalRequest(), style={}))
     assert error.value.code == "unsupported_claim"
+
+
+def test_conversational_reply_uses_delivery_references_for_change_context(settings, record):
+    settings.prepare()
+    store = Store(settings.data_dir / "test.sqlite")
+    retrieval = RetrievalService(store)
+    record["end_state"] = "The GitHub connector is now connected to Slack."
+    retrieval.upsert(record)
+    captured = {}
+
+    class Model:
+        async def generate(self, **kwargs):
+            data = json.loads(kwargs["user"])
+            captured.update(data)
+            source = next(item for item in data["evidence"] if item["field"] == "end_state")
+            return {
+                "paragraphs": [
+                    {
+                        "text": source["text"],
+                        "citations": [{"evidence_id": source["evidence_id"]}],
+                    }
+                ]
+            }
+
+    current = next(
+        item for item in retrieval.evidence(RetrievalRequest()) if item.field == "end_state"
+    )
+    earlier_version = current.model_dump()
+    earlier_version["record_hash"] = "previous-version"
+    earlier_version["text_hash"] = hashlib.sha256(b"Earlier connector state.").hexdigest()
+    result = asyncio.run(
+        DraftEngine(settings, store, retrieval, Model()).reply(
+            question="What changed since your last update?",
+            scope=RetrievalRequest(),
+            style={"tone": "concise"},
+            conversation_history=[{"role": "owner", "text": "I sent the earlier update."}],
+            delivered_evidence_refs=[earlier_version],
+            has_prior_delivery=True,
+        )
+    )
+
+    assert captured["conversation_history"] == [
+        {"role": "owner", "text": "I sent the earlier update."}
+    ]
+    assert captured["delivery_baseline"] == {
+        "has_prior_delivery": True,
+        "delivered_evidence_count": 1,
+    }
+    source = next(item for item in captured["evidence"] if item["field"] == "end_state")
+    assert source["delivery_status"] == "changed_since_delivery"
+    assert result["paragraphs"][0]["citations"][0]["evidence_id"] == current.evidence_id
 
 
 def test_real_git_commit_becomes_redacted_report_evidence(settings, tmp_path):
