@@ -32,15 +32,19 @@ export function Projects({
             <strong>{p.name}</strong>
             <small>{p.detail}</small>
           </span>
-          <input
-            type="checkbox"
-            checked={p.selected}
-            disabled={busy || state.mode === "local"}
-            onChange={(e) =>
-              act({ type: "project", id: p.id, selected: e.target.checked })
-            }
-            aria-label={`Include ${p.name}`}
-          />
+          {state.mode === "local" ? (
+            <span className="indexed-badge">Indexed</span>
+          ) : (
+            <input
+              type="checkbox"
+              checked={p.selected}
+              disabled={busy}
+              onChange={(e) =>
+                act({ type: "project", id: p.id, selected: e.target.checked })
+              }
+              aria-label={`Include ${p.name}`}
+            />
+          )}
         </label>
       ))}
     </div>

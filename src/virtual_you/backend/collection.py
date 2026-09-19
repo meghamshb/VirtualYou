@@ -34,15 +34,31 @@ class Collector:
 
     def collect(self):
         if not self.settings.ingestion_config:
-            return {"enabled": False, "changed": 0, "errors": []}
-        errors, changed = [], 0
+            return {
+                "enabled": False,
+                "configured_sources": 0,
+                "changed": 0,
+                "unchanged": 0,
+                "empty": 0,
+                "errors": [],
+                "error_count": 0,
+            }
+        errors, changed, unchanged, empty = [], 0, 0, 0
         try:
             entries = json.loads(self.settings.ingestion_config.read_text())
             if not isinstance(entries, list) or len(entries) > 50:
                 raise ValueError()
             sources = [SourceConfig.model_validate(x) for x in entries]
         except (OSError, ValueError):
-            return {"enabled": True, "changed": 0, "errors": [{"code": "invalid_ingestion_config"}]}
+            return {
+                "enabled": True,
+                "configured_sources": 0,
+                "changed": 0,
+                "unchanged": 0,
+                "empty": 0,
+                "errors": [{"code": "invalid_ingestion_config"}],
+                "error_count": 1,
+            }
         for source in sources:
             try:
                 root = Path(source.path).expanduser().resolve(strict=True)
@@ -67,10 +83,12 @@ class Collector:
                             ).save(record)
                             changed += 1
                         self.fingerprints[key] = head.stdout
+                    else:
+                        unchanged += 1
                     continue
                 paths = sorted(root.glob(source.pattern)) if root.is_dir() else [root]
                 if not paths:
-                    errors.append({"source": source.source.value, "code": "no_source_files"})
+                    empty += 1
                 service = IngestionService(
                     repository=ActivityRecordRepository(
                         self.settings.data_dir / "ingestion-staging" / source.project
@@ -105,6 +123,7 @@ class Collector:
                         )
                         key = (source.project, source.source.value, str(path))
                         if self.fingerprints.get(key) == fingerprint:
+                            unchanged += 1
                             continue
                         if source.source == SourceKind.CODEX:
                             for index, chunk in enumerate(public_session_chunks(path)):
@@ -135,7 +154,14 @@ class Collector:
                                 changed += 1
                             self.fingerprints[key] = fingerprint
                             continue
-                        record = service.ingest_file(source.source, path)
+                        try:
+                            record = service.ingest_file(source.source, path)
+                        except IngestionError as error:
+                            if error.code == IngestionErrorCode.NOTHING_TO_REPORT:
+                                empty += 1
+                                self.fingerprints[key] = fingerprint
+                                continue
+                            raise
                         # Ingestion IDs may collide across projects/files. Namespace before
                         # publication; never allow one project's log to overwrite another.
                         record.session_id = hashlib.sha256(
@@ -160,4 +186,12 @@ class Collector:
                         )
             except (OSError, ValueError, IngestionError):
                 errors.append({"source": source.source.value, "code": "source_unavailable"})
-        return {"enabled": True, "changed": changed, "errors": errors[:20]}
+        return {
+            "enabled": True,
+            "configured_sources": len(sources),
+            "changed": changed,
+            "unchanged": unchanged,
+            "empty": empty,
+            "errors": errors[:20],
+            "error_count": len(errors),
+        }

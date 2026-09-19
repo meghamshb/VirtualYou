@@ -6,6 +6,7 @@ import { z } from "zod";
 import { actionSchema, type Workspace } from "../shared/model";
 import { freshWorkspace, transition, diagnosticText } from "../shared/preview";
 import { LocalBackend, localOrigin } from "./backend";
+import { applyLocalAction, refreshLocalSnapshot } from "./local-session";
 import { CredentialVault, trustedFrame } from "./security";
 import { Customer } from "./customer";
 if (!app.isPackaged && process.env.VIRTUAL_YOU_DESKTOP_TEST_DATA) {
@@ -77,7 +78,8 @@ async function main() {
     },
   );
   const customer = new Customer(serviceUrl, customerVault);
-  await customer.init();
+  // Developer builds without a hosted address use the local backend adapter.
+  if (serviceUrl) await customer.init();
   app.on("before-quit", () => customer.stop());
   ipcMain.handle("vy:customer", async (event, action) => {
     authorize(event);
@@ -120,20 +122,14 @@ async function main() {
         .object({ port: z.number(), key: z.string() })
         .parse(await vault.load());
       backend = new LocalBackend(saved.port, saved.key);
-      state = await backend.snapshot();
     }
   } catch {
     backend = null;
   }
+  if (backend) state = await refreshLocalSnapshot(backend, state);
   ipcMain.handle("vy:snapshot", async (event) => {
     authorize(event);
-    if (backend) {
-      try {
-        state = await backend.snapshot();
-      } catch {
-        state = { ...state, health: "offline" };
-      }
-    }
+    if (backend) state = await refreshLocalSnapshot(backend, state);
     return state;
   });
   ipcMain.handle("vy:act", async (event, raw) => {
@@ -143,7 +139,9 @@ async function main() {
       await disconnect();
       state = { ...freshWorkspace(), welcomed: true };
     } else if (backend) {
-      state = await backend.act(action);
+      const result = await applyLocalAction(backend, action, state);
+      state = result.state;
+      if (!result.ok) throw result.error;
     } else {
       state = transition(state, action);
     }

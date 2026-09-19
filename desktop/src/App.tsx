@@ -77,6 +77,12 @@ export default function App() {
       setError(false);
       if (success) setMessage(success);
     } catch (e) {
+      // Reconcile an uncertain mutation without retrying it or hiding its error.
+      try {
+        setState(await bridge.snapshot());
+      } catch {
+        /* Keep original error. */
+      }
       setError(true);
       setMessage(
         e instanceof Error
@@ -115,7 +121,8 @@ export default function App() {
             <div className="page-intro">
               <h1>Your local workspace is connected.</h1>
               <p>
-                Review existing report drafts and check your backend’s health.
+                Review report drafts, check recent work, and see your backend’s
+                health.
               </p>
             </div>
             <div className="connection-notice">
@@ -166,7 +173,7 @@ export default function App() {
               <span>
                 {state.mode === "preview"
                   ? "These are example connections. OAuth permissions are not requested in preview."
-                  : "Integration authorization remains managed by your existing deployment. Connection status is not inferred from local evidence."}
+                  : "Integration authorization remains managed by your existing deployment. Configured means credentials are present; it does not claim a live connection test."}
               </span>
             </div>
           </>
@@ -186,13 +193,21 @@ export default function App() {
           />
         );
       case "activity":
-        return <ActivityView state={state} />;
+        return (
+          <ActivityView
+            state={state}
+            busy={busy}
+            onRefresh={() => void run(() => bridge.snapshot())}
+            onCollect={() => act({ type: "refresh" })}
+            onReview={() => setView("approvals")}
+          />
+        );
       case "diagnostics":
         return (
           <Diagnostics
             state={state}
             onCopy={() => void copy()}
-            onRefresh={() => act({ type: "refresh" })}
+            onRefresh={() => void run(() => bridge.snapshot())}
             busy={busy}
           />
         );
@@ -317,6 +332,22 @@ export default function App() {
               </span>
             </div>
           )}
+          {loaded && state.mode === "preview" && state.welcomed && (
+            <div className="notice" role="status">
+              <Info size={18} />
+              <span>
+                You’re viewing sample data.{" "}
+                {window.virtualYou
+                  ? "Connect your local backend to see real activity and drafts."
+                  : "Open the Electron desktop app to connect your local backend."}
+              </span>
+              {window.virtualYou && (
+                <Button onClick={() => setView("settings")}>
+                  Connect local backend
+                </Button>
+              )}
+            </div>
+          )}
           {busy && (
             <div className="loading-line" role="status" aria-label="Working" />
           )}
@@ -353,14 +384,31 @@ export default function App() {
               Settings.
             </span>
           </div>
-          <Button variant="primary" onClick={() => act({ type: "welcome" })}>
-            Explore the preview <ArrowRight size={17} />
-          </Button>
+          <div className="row-actions">
+            {window.virtualYou && (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  act({ type: "welcome" });
+                  setView("settings");
+                }}
+              >
+                Connect local backend <ArrowRight size={17} />
+              </Button>
+            )}
+            <Button onClick={() => act({ type: "welcome" })}>
+              Explore sample preview
+            </Button>
+          </div>
         </Modal>
       )}
       {dialog?.kind === "connect" && (
         <Modal
-          title={`Connect ${providers[dialog.provider].name}`}
+          title={
+            state.mode === "local"
+              ? `${providers[dialog.provider].name} setup`
+              : `Connect ${providers[dialog.provider].name}`
+          }
           onClose={() => setDialog(null)}
         >
           <p>{providers[dialog.provider].permission}</p>
@@ -399,8 +447,9 @@ export default function App() {
               <div className="preview-callout">
                 <Info size={18} />
                 <span>
-                  Hosted onboarding is not configured in this build. Your
-                  current backend integrations and authorization are unchanged.
+                  Your backend manages this integration. Configuration status
+                  appears on the Integrations screen; new account authorization
+                  is separate from this local workspace.
                 </span>
               </div>
               <Button onClick={() => setDialog(null)}>Got it</Button>

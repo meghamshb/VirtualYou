@@ -35,6 +35,30 @@ class Heartbeat:
         self.collector = Collector(settings)
 
     async def refresh(self):
+        started = utcnow()
+        try:
+            return await self._refresh()
+        except Exception:
+            # Manual/startup refresh failures must not leave an older healthy result visible.
+            # Preserve the last successful timestamp, but never expose exception text or paths.
+            previous = self.store.metadata("heartbeat") or {}
+            status = {
+                "collection": previous.get("collection", {}),
+                "enabled": self.settings.heartbeat_enabled,
+                "interval_seconds": self.settings.heartbeat_seconds,
+                "started_at": started,
+                "finished_at": utcnow(),
+                "last_success_at": previous.get("last_success_at"),
+                "changed": 0, "unchanged": 0, "removed": 0,
+                "errors": [{"source": "collector", "code": "refresh_failed"}],
+                "error_count": 1,
+                "state": "failed",
+                **self.retrieval.stats(),
+            }
+            self.store.set_metadata("heartbeat", status)
+            return status
+
+    async def _refresh(self):
         async with self.lock:
             started = utcnow()
             changed, skipped, removed, errors = 0, 0, 0, []
@@ -135,7 +159,9 @@ class Heartbeat:
                 "unchanged": skipped,
                 "removed": removed,
                 "errors": errors[:20],
-                "error_count": len(errors),
+                "error_count": len(errors) + max(
+                    0, collection.get("error_count", 0) - len(collection["errors"])
+                ),
                 "state": "degraded" if errors else "healthy",
                 **self.retrieval.stats(),
             }

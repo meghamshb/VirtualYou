@@ -19,7 +19,7 @@ messages from follow-up context, kept replay from extending topic retention, and
 made successful-delivery state and context persistence atomic. Judgment questions
 still escalate, and factual answers still require scoped activity evidence.
 
-Current verification: **349 backend/ingestion/hosted tests and 145 Slack workflow
+Current verification: **366 backend/ingestion/hosted tests and 155 Slack workflow
 tests passed**. Regression coverage includes ordering, ambiguity, approval,
 redaction, thread isolation, three-day expiry, restart, delivered/changed evidence
 and uncertain delivery. Scoped lint and whitespace checks passed. Slack calls in
@@ -30,6 +30,16 @@ report rejection. See [LIVE_TESTING.md](LIVE_TESTING.md) for the evidence,
 report-generation fixes, desktop checks and remaining demo limitations. See
 [LEO_INTEGRATION.md](LEO_INTEGRATION.md) for the branch audit, conflict decisions,
 current checks, local demo instructions and outstanding external setup.
+
+The current desktop follow-up adds collapsible approvals, authenticated activity
+and audit feeds, manual collection, accurate integration configuration labels,
+Slack workflow pause and local-connection recovery. Slack review cards now use
+shared Block Kit templates; new personal-DM candidates disclose AI assistance
+before approval. A clean macOS setup is documented in [LOCAL_SETUP.md](LOCAL_SETUP.md).
+Desktop checks: **28 Vitest tests + 2 packaging checks**, lint and build passed.
+Native checks cover real activity refresh and compact report disclosure controls.
+Jira/Drive credentials, editor-log source configuration, hosted customer release,
+and a labelled live-DM acceptance check remain separate work.
 
 The notes below are historical Member 2/4 milestones; their branch names and
 acceptance counts are not the current integration result.

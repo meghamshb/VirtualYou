@@ -47,11 +47,11 @@ wording needs human review.
 Electron initially showed a hashed recipient ID and required navigating to
 Diagnostics to refresh drafts. Local fixes resolve the recipient's display name
 and add a **Refresh drafts** control to Approvals.
-Simulation approval now explicitly says **Approve simulation** and completed
-reports say **Delivery simulated**. A failed backend refresh shows an offline
-notice and disables review decisions until recovery. These final label and
-offline-state changes passed rendered-component tests; they have not yet been
-rechecked in the running native app.
+Simulation approval explicitly says **Approve simulation** and completed reports
+say **Delivery simulated**. A failed backend refresh shows an offline notice and
+disables review decisions until recovery. The native app now shows the completed
+simulation label correctly; offline recovery and decision guards have automated
+coverage.
 
 ## Current demo boundaries
 
@@ -59,9 +59,10 @@ rechecked in the running native app.
   group reply queues remain in Slack; they are not mirrored in Electron.
 - Voice capture/transcript review remains in the browser/Slack workflow, not a
   native Electron recording screen.
-- The default customer onboarding screen needs a deployed hosted service and
-  packaged collector. For this local demo, choose **Developer / preview** to
-  reach the saved local connection after launching Electron.
+- Hosted customer onboarding needs a deployed service and packaged collector.
+  Unconfigured developer builds now open the local/preview workspace directly;
+  saved local connections reopen automatically. New users must connect their own
+  running backend through the native folder picker. See [LOCAL_SETUP.md](LOCAL_SETUP.md).
 - Jira and Drive credentials are absent locally; their live authentication,
   fetching and end-to-end drafting have not been verified. Group conversation
   delivery and conversation follow-ups were not exercised live in this session.
@@ -71,15 +72,53 @@ rechecked in the running native app.
 
 ## Automated verification
 
-- Root backend/ingestion/hosted suite: **349 passed**.
-- Slack workflow suite: **145 passed**; it uses fake Slack clients, separate
+- Root backend/ingestion/hosted suite: **366 passed** (including portable demo checks).
+- Slack workflow suite: **155 passed**; it uses fake Slack clients, separate
   from the live results above.
 - An independent agent review reran the 145 Slack and 176 backend tests; these
   overlap the totals above and are not additional distinct tests.
-- Desktop build, typecheck, lint, **24 Vitest tests + 2 packaging checks** passed
+- Desktop build, typecheck, lint, **28 Vitest tests + 2 packaging checks** passed
   for recipient names, refresh, simulation labels and offline decision guards.
   Native UI checks are recorded separately above; no signed package or hosted
   customer deployment was validated.
+
+
+## Desktop activity and setup follow-up
+
+- Replaced the empty Activity placeholder with a bounded, authenticated feed of
+  normalized work records and draft audit events. The running Slack backend
+  returned 23 indexed work records and 29 combined events in this check.
+- Native Electron displayed the real feed. **Check activity now** entered a
+  disabled **Checking…** state and completed with an updated successful-check
+  timestamp. Activity collection sends no messages and generates no drafts.
+- Approval rows expand independently; **Expand all drafts / Collapse all drafts**
+  were exercised natively. Evidence starts closed and individual sources expand
+  separately. Source bulk controls are available; bulk-source interaction still
+  needs a native pass. The compact collapsed layout was visually inspected.
+- Collection health is separate from API connectivity. Valid empty sources,
+  malformed input and failed refreshes have distinct states; error details omit
+  raw paths and source data. Manual refresh failure updates the persisted status.
+- Integration status now reflects configuration presence, not a claimed live
+  connection. Native Electron correctly showed Slack configured and GitHub,
+  Jira and Drive unconfigured. Local Git collection does not require GitHub OAuth.
+- Slack workflow pause is wired through an authenticated endpoint that preserves
+  source preferences; stopped/missing workers cannot be controlled. Automated
+  tests cover it and the existing delivery guard. No live pause was toggled.
+- Current collection is scoped to this repository's Git commits. Claude/Cursor/
+  Codex logs are not configured for collection. Voice records enter through the
+  existing voice flow; choosing a retrieval source alone never enables collection.
+- Saved local connections survive startup failures, retain offline status and
+  recover without reauthorizing or retrying failed delivery actions. Diagnostics
+  now reads status only; source collection has its own clearly named action.
+- A clean macOS source export, fresh Python environment and fresh npm install
+  passed backend HTTP and demo draft/approval/simulation checks and desktop build.
+  The isolated demo seeds one pending synthetic report and does not use personal
+  configuration. This is not proof of setup on a second physical Mac or Intel.
+- Slack cards use shared Block Kit templates and clear sender identity. New
+  personal-DM candidates include a VirtualYou assistance label before review;
+  approved text is unchanged at delivery. Existing drafts remain unchanged.
+  155 fake-client tests passed. Native Slack appearance and a new labelled live
+  DM remain unverified; no colleague message was sent for these UI changes.
 
 ## Local operator files
 

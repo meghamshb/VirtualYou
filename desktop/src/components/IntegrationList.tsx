@@ -25,9 +25,9 @@ export const providers: Record<
   },
   drive: {
     name: "Google Drive",
-    description: "Find answers in the documents you choose.",
+    description: "Bring selected folder metadata into context.",
     permission:
-      "Read selected documents. Your entire Drive is not automatically shared.",
+      "Read metadata from the chosen folder. Document contents and your entire Drive are not imported.",
   },
 };
 export function IntegrationList({
@@ -53,10 +53,11 @@ export function IntegrationList({
               <p>{provider.description}</p>
               {item.account && <small>{item.account}</small>}
             </div>
-            {item.state === "connected" ? (
+            {item.state === "connected" || item.state === "configured" ? (
               <div className="connected-actions">
                 <span className="connected">
-                  <Check size={15} /> Connected
+                  <Check size={15} />{" "}
+                  {item.state === "configured" ? "Configured" : "Connected"}
                 </span>
                 {onDisconnect && (
                   <Button
@@ -73,7 +74,11 @@ export function IntegrationList({
               <Button
                 disabled={busy}
                 onClick={() => onConnect(item.id)}
-                aria-label={`Connect ${provider.name}`}
+                aria-label={
+                  item.state === "unavailable"
+                    ? `View ${provider.name} setup`
+                    : `Connect ${provider.name}`
+                }
               >
                 {item.state === "unavailable" ? "Details" : "Connect"}
                 {item.state === "unavailable" && <ExternalLink size={14} />}

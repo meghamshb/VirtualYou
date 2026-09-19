@@ -15,6 +15,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from virtual_you.backend.activity_feed import (
+    WorkflowPause,
+    activity_feed,
+    collection_summary,
+    integration_summary,
+    set_workflow_pause,
+    workflow_summary,
+)
 from virtual_you.backend.assistant import AssistantService
 from virtual_you.backend.config import Settings
 from virtual_you.backend.delivery import DeliveryGateway
@@ -250,6 +258,9 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
             "delivery_mode": "live" if settings.live_delivery else "simulation",
             "heartbeat": app.state.store.metadata("heartbeat"),
             "activity": app.state.retrieval.stats(),
+            "collection": collection_summary(settings, app.state.store, app.state.retrieval),
+            "workflow": workflow_summary(app.state.store, app.state),
+            "integrations": integration_summary(settings, app.state),
             "projects": app.state.retrieval.project_choices(),
             "voice": {
                 "provider": settings.voice_provider,
@@ -267,6 +278,14 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
     @api.post("/refresh")
     async def refresh():
         return await app.state.heartbeat.refresh()
+
+    @api.get("/activity")
+    def recent_activity(limit: int = Query(default=50, ge=1, le=100)):
+        return activity_feed(settings, app.state.store, app.state.retrieval, limit)
+
+    @api.post("/workflow/pause")
+    def pause_workflow(request: WorkflowPause):
+        return set_workflow_pause(app.state.store, app.state, request.paused)
 
     @api.post("/activities", status_code=201)
     def import_activity(payload: dict):

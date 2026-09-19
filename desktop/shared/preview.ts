@@ -33,6 +33,11 @@ export function freshWorkspace(): Workspace {
     ],
     drafts: [],
     activity: [],
+    activityHasMore: false,
+    collection: null,
+    provider: null,
+    backendPort: null,
+    workflowAvailable: false,
     paused: false,
     version: "0.1.0",
     health: "preview",
@@ -200,6 +205,16 @@ export function diagnosticText(state: Workspace): string {
       })),
       projectCount: state.projects.length,
       pendingCount: state.drafts.filter((d) => d.status === "pending").length,
+      collection: state.collection
+        ? {
+            state: state.collection.state,
+            recordCount: state.collection.record_count,
+            errorCodes: state.collection.errors.map((e) => e.code),
+            lastSuccessAt: state.collection.last_success_at,
+          }
+        : null,
+      deliveryMode: state.deliveryMode,
+      paused: state.paused,
     },
     null,
     2,

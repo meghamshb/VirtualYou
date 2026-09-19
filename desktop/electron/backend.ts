@@ -17,7 +17,11 @@ export class LocalBackend {
         "The selected folder does not contain a valid backend access key.",
       );
   }
-  async request(path: string, body?: unknown): Promise<unknown> {
+  async request(
+    path: string,
+    body?: unknown,
+    timeout = 10000,
+  ): Promise<unknown> {
     const response = await fetch(localOrigin(this.port) + path, {
       method: body === undefined ? "GET" : "POST",
       headers: {
@@ -26,7 +30,7 @@ export class LocalBackend {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       redirect: "error",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(timeout),
     }).catch(() => {
       throw new Error(
         "Cannot reach the local backend. Start your existing VirtualYou service, then try again.",
@@ -44,17 +48,33 @@ export class LocalBackend {
     return response.json();
   }
   async snapshot(): Promise<Workspace> {
+    const [statusData, draftData, profileData, activityData] =
+      await Promise.all([
+        this.request("/api/status"),
+        this.request("/api/drafts"),
+        this.request("/api/personas"),
+        this.request("/api/activity?limit=50"),
+      ]);
     const status = z
       .object({
         provider: z.string(),
         delivery_mode: z.enum(["live", "simulation"]),
         projects: z.array(z.string()),
+        workflow: z.object({ paused: z.boolean(), available: z.boolean() }),
+        integrations: z.record(
+          z.string(),
+          z.object({
+            status: z.enum(["configured", "not_configured"]),
+            enabled: z.boolean(),
+            verification: z.literal("not_checked"),
+          }),
+        ),
         heartbeat: z
           .object({ state: z.string(), finished_at: z.string().optional() })
           .nullable(),
       })
       .passthrough()
-      .parse(await this.request("/api/status"));
+      .parse(statusData);
     const raw = z
       .array(
         z
@@ -81,13 +101,57 @@ export class LocalBackend {
           })
           .passthrough(),
       )
-      .parse(await this.request("/api/drafts"));
+      .parse(draftData);
     const profiles = z
       .array(z.object({ recipient_id: z.string(), display_name: z.string() }))
-      .parse(await this.request("/api/personas"));
+      .parse(profileData);
     const names = new Map(
       profiles.map((p) => [p.recipient_id, p.display_name]),
     );
+    const feed = z
+      .object({
+        items: z.array(
+          z.object({
+            id: z.string(),
+            kind: z.enum(["activity", "draft_event"]),
+            at: z.string(),
+            title: z.string(),
+            summary: z.string(),
+            source: z.string().optional(),
+            project_id: z.string().nullable().optional(),
+            draft_id: z.string().optional(),
+            files_changed_count: z.number().optional(),
+            tool_calls_count: z.number().optional(),
+          }),
+        ),
+        has_more: z.boolean(),
+        collection: z.object({
+          state: z.enum([
+            "healthy",
+            "empty",
+            "degraded",
+            "failed",
+            "not_started",
+          ]),
+          enabled: z.boolean(),
+          configured: z.boolean(),
+          last_attempt_at: z.string().nullable(),
+          last_success_at: z.string().nullable(),
+          record_count: z.number(),
+          changed: z.number(),
+          unchanged: z.number(),
+          removed: z.number(),
+          error_count: z.number(),
+          errors: z.array(
+            z.object({
+              source: z.string(),
+              code: z.string(),
+              message: z.string(),
+            }),
+          ),
+        }),
+      })
+      .parse(activityData);
     const drafts: Draft[] = raw.map((d) => ({
       id: d.id,
       recipient: names.get(d.request.recipient_id) || d.request.recipient_id,
@@ -106,8 +170,27 @@ export class LocalBackend {
       mode: "local",
       deliveryMode: status.delivery_mode,
       welcomed: true,
-      health: status.heartbeat?.state === "healthy" ? "ready" : "offline",
-      lastRefresh: status.heartbeat?.finished_at || null,
+      // Successful authenticated API reads prove connectivity; collection health is separate.
+      health: "ready",
+      lastRefresh: new Date().toISOString(),
+      provider: status.provider,
+      backendPort: this.port,
+      collection: feed.collection,
+      activityHasMore: feed.has_more,
+      paused: status.workflow.paused,
+      workflowAvailable: status.workflow.available,
+      activity: feed.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        source: item.source || "Review workflow",
+        at: item.at,
+        kind: item.kind,
+        summary: item.summary,
+        projectId: item.project_id,
+        draftId: item.draft_id,
+        filesChanged: item.files_changed_count,
+        toolCalls: item.tool_calls_count,
+      })),
       projects: status.projects.map((id) => ({
         id,
         name: id,
@@ -115,17 +198,31 @@ export class LocalBackend {
         selected: true,
       })),
       drafts,
-      integrations: [
-        { id: "slack", state: "unavailable" },
-        { id: "github", state: "unavailable" },
-        { id: "jira", state: "unavailable" },
-        { id: "drive", state: "unavailable" },
-      ],
+      integrations: (["slack", "github", "jira", "drive"] as const).map(
+        (id) => {
+          const integration = status.integrations[id];
+          return {
+            id,
+            state:
+              integration?.status === "configured"
+                ? "configured"
+                : "unavailable",
+            account:
+              integration?.status === "configured"
+                ? `${integration.enabled ? "Enabled" : "Not enabled"} · credentials configured; access not checked`
+                : "Not configured on this backend",
+          };
+        },
+      ),
     };
   }
   async act(action: Action): Promise<Workspace> {
     if (action.type === "refresh") {
-      await this.request("/api/refresh", {});
+      await this.request("/api/refresh", {}, 120000);
+      return this.snapshot();
+    }
+    if (action.type === "pause") {
+      await this.request("/api/workflow/pause", { paused: action.value });
       return this.snapshot();
     }
     if (action.type === "decision") {

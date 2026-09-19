@@ -1,6 +1,50 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { LocalBackend } from "../electron/backend";
 afterEach(() => vi.unstubAllGlobals());
+const collection = {
+  state: "degraded",
+  enabled: true,
+  configured: true,
+  last_attempt_at: "2026-09-20T00:00:00Z",
+  last_success_at: null,
+  record_count: 23,
+  changed: 1,
+  unchanged: 22,
+  removed: 0,
+  error_count: 1,
+  errors: [
+    {
+      source: "git",
+      code: "source_unavailable",
+      message: "Check source access.",
+    },
+  ],
+};
+const feed = {
+  items: [
+    {
+      id: "activity:1",
+      kind: "activity",
+      at: "2026-09-20T00:00:00Z",
+      title: "Git activity",
+      summary: "Recorded change",
+      source: "git",
+      project_id: "virtualyou",
+      files_changed_count: 2,
+      tool_calls_count: 0,
+    },
+    {
+      id: "draft-event:1",
+      kind: "draft_event",
+      at: "2026-09-19T23:00:00Z",
+      title: "Draft rejected",
+      summary: "Revision 1 · reject",
+      draft_id: "draft-1",
+    },
+  ],
+  has_more: true,
+  collection,
+};
 describe("existing backend boundary", () => {
   it("refreshes evidence with the backend's POST contract", async () => {
     const fetcher = vi.fn(async () => Response.json({}));
@@ -22,6 +66,7 @@ describe("existing backend boundary", () => {
       const calls: { url: string; init: RequestInit }[] = [];
       vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
         calls.push({ url, init });
+        if (url.endsWith("/api/activity?limit=50")) return Response.json(feed);
         if (url.endsWith("/api/personas"))
           return Response.json([
             { recipient_id: "colleague", display_name: "Meghamsh Balantrapu" },
@@ -32,8 +77,16 @@ describe("existing backend boundary", () => {
                 provider: "openai:gpt-4o-mini",
                 delivery_mode: deliveryMode,
                 projects: ["virtualyou"],
+                workflow: { available: true, paused: true },
+                integrations: {
+                  slack: {
+                    status: "configured",
+                    enabled: true,
+                    verification: "not_checked",
+                  },
+                },
                 heartbeat: {
-                  state: "healthy",
+                  state: "degraded",
                   finished_at: "2026-09-20T00:00:00Z",
                 },
               }
@@ -62,6 +115,19 @@ describe("existing backend boundary", () => {
       );
       const state = await client.snapshot();
       expect(state.mode).toBe("local");
+      expect(state.health).toBe("ready"); // Reachable API despite a failed source.
+      expect(state.collection?.state).toBe("degraded");
+      expect(state.collection?.error_count).toBe(1);
+      expect(state.activity[0].projectId).toBe("virtualyou");
+      expect(state.activity[1].draftId).toBe("draft-1");
+      expect(state.activityHasMore).toBe(true);
+      expect(state.paused).toBe(true);
+      expect(state.integrations.find((i) => i.id === "slack")?.state).toBe(
+        "configured",
+      );
+      expect(state.integrations.find((i) => i.id === "jira")?.state).toBe(
+        "unavailable",
+      );
       expect(state.deliveryMode).toBe(deliveryMode);
       expect(state.drafts[0].recipient).toBe("Meghamsh Balantrapu");
       expect(state.drafts[0].id).toBe("draft-1");
@@ -72,6 +138,22 @@ describe("existing backend boundary", () => {
       ).toContain("test-secret");
     },
   );
+  it("sends only the requested pause setting to the workflow endpoint", async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({ available: true, paused: true }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const client = new LocalBackend(
+      3000,
+      "test-secret-with-at-least-24-characters",
+    );
+    vi.spyOn(client, "snapshot").mockResolvedValue({} as never);
+    await client.act({ type: "pause", value: true });
+    expect(fetcher.mock.calls[0]).toEqual([
+      "http://127.0.0.1:3000/api/workflow/pause",
+      expect.objectContaining({ method: "POST", body: '{"paused":true}' }),
+    ]);
+  });
   it("does not deliver if approval is rejected by the backend", async () => {
     const calls: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => {

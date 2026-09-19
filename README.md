@@ -1,3 +1,8 @@
+> **Running this on your own Mac?** Start with [the local setup guide](docs/LOCAL_SETUP.md).
+> `npm run dev` is a browser preview. Use `npm run desktop` and connect it to your
+> own backend. The portable demo needs no API keys and includes a pending sample
+> report for review; it never sends messages.
+
 > **Integration status:** PR #4 merged the Jira/Drive, conversation-context, Member 2
 > and Member 4 integration into `develop`. The follow-up on `leo-dev` restores
 > approved clarification replies, fixes conversation ordering, and restores

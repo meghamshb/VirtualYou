@@ -12,7 +12,7 @@ export type View =
 export type Step = "connect" | "projects" | "review" | "complete";
 export interface Integration {
   id: ProviderId;
-  state: "disconnected" | "connected" | "unavailable";
+  state: "disconnected" | "connected" | "configured" | "unavailable";
   account?: string;
   checkedAt?: string;
 }
@@ -36,6 +36,25 @@ export interface Activity {
   title: string;
   source: string;
   at: string;
+  kind?: "activity" | "draft_event";
+  summary?: string;
+  projectId?: string | null;
+  draftId?: string;
+  filesChanged?: number;
+  toolCalls?: number;
+}
+export interface Collection {
+  state: "healthy" | "empty" | "degraded" | "failed" | "not_started";
+  enabled: boolean;
+  configured: boolean;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  record_count: number;
+  changed: number;
+  unchanged: number;
+  removed: number;
+  error_count: number;
+  errors: { source: string; code: string; message: string }[];
 }
 export interface Workspace {
   mode: "preview" | "local";
@@ -45,6 +64,11 @@ export interface Workspace {
   projects: Project[];
   drafts: Draft[];
   activity: Activity[];
+  activityHasMore: boolean;
+  collection: Collection | null;
+  provider: string | null;
+  backendPort: number | null;
+  workflowAvailable: boolean;
   paused: boolean;
   version: string;
   health: "preview" | "ready" | "offline";

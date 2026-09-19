@@ -15,8 +15,8 @@ removing them would regress the previously integrated connectors. This restores
 existing code and does not deploy a hosted service or establish customer readiness.
 
 The PR also includes report repair feedback and desktop review fixes found during
-live testing. Current results are **349 root tests, 145 Slack workflow tests,
-24 desktop tests and 2 packaging checks passed**. See
+live testing. Current results are **366 root tests, 155 Slack workflow tests,
+28 desktop tests and 2 packaging checks passed**. See
 [LIVE_TESTING.md](LIVE_TESTING.md) for the real Slack DM, provider and native
 Electron results, and the remaining acceptance gaps. `develop` and `main` are
 not modified by this follow-up; the user will confirm before any move to `main`.

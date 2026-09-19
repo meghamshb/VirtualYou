@@ -1478,3 +1478,225 @@ main {
 .customer-header {
   background: #f4f7f5;
 }
+
+/* Compact, independently expandable review and activity rows. */
+.approval-toolbar,
+.disclosure-tools,
+.resolved-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.approval-toolbar {
+  justify-content: space-between;
+  margin: 0 0 16px;
+}
+.resolved-filter {
+  color: var(--muted);
+  font-size: 13px;
+}
+.resolved-filter input {
+  accent-color: var(--green);
+}
+.approval-stack {
+  display: grid;
+  gap: 12px;
+}
+.draft-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+}
+.draft-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  border: 0;
+  padding: 19px 22px;
+  background: #f7f9f8;
+  text-align: left;
+}
+.draft-card-toggle[aria-expanded="true"] {
+  border-bottom: 1px solid var(--border);
+}
+.draft-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.draft-card-title strong {
+  display: block;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.draft-card-title small {
+  font-size: 11px;
+  margin-top: 5px;
+}
+.draft-status {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.draft-status.pending {
+  color: var(--green);
+  background: #e5f1e9;
+  border-radius: 20px;
+  padding: 5px 9px;
+}
+.draft-card-toggle > svg,
+.evidence-toggle svg {
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+.rotated {
+  transform: rotate(180deg);
+}
+.evidence-section summary::-webkit-details-marker {
+  display: none;
+}
+.evidence-section[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.evidence-section .disclosure-tools {
+  margin-top: 12px;
+}
+.evidence-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f6f8f7;
+  color: var(--green);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 12px;
+}
+.evidence blockquote {
+  max-height: none;
+  overflow: visible;
+}
+.collection-summary {
+  display: grid;
+  grid-template-columns: 1.1fr 0.85fr 1.1fr;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 24px;
+}
+.collection-summary > div {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.collection-summary > div + div {
+  border-left: 1px solid var(--border);
+}
+.collection-summary small,
+.collection-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.collection-summary strong {
+  font-size: 16px;
+  font-weight: 550;
+}
+.collection-errors {
+  display: block;
+}
+.collection-errors ul {
+  padding-left: 20px;
+  margin-top: 10px;
+}
+.activity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  margin: 22px 0 4px;
+}
+.activity-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.activity-filters select {
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 28px 9px 10px;
+  background: white;
+}
+.activity-filters > span {
+  margin-left: auto;
+  padding-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-event > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.activity-event > summary::-webkit-details-marker {
+  display: none;
+}
+.activity-event[open] > summary > svg:last-child {
+  transform: rotate(90deg);
+}
+.event-heading {
+  flex: 1;
+  min-width: 0;
+}
+.event-heading strong {
+  display: block;
+}
+.event-body {
+  padding: 16px 18px 18px 60px;
+  background: #f7f9f8;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.event-body .fine-print {
+  margin-top: 8px;
+}
+.indexed-badge {
+  color: var(--green);
+  font-size: 12px;
+  padding: 5px 10px;
+  background: #e8f1ec;
+  border-radius: 20px;
+}
+@media (max-width: 900px) {
+  .collection-summary {
+    grid-template-columns: 1fr;
+  }
+  .collection-summary > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .draft-card-toggle {
+    flex-wrap: wrap;
+  }
+  .draft-status {
+    margin-left: 43px;
+  }
+  .timeline-row time {
+    max-width: 115px;
+  }
+  .event-body {
+    padding-left: 18px;
+  }
+}
