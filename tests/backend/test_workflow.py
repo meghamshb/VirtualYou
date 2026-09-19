@@ -82,6 +82,26 @@ def test_evidence_refresh_never_mutates_reviewed_text(client, record):
     assert client.get(f"/api/drafts/{draft['id']}").json() == draft
 
 
+def test_changed_evidence_requires_fresh_draft_before_approval(client, record):
+    prepare(client, record)
+    draft = new_draft(client)
+    record["end_state"] = "Evidence changed after generation."
+    client.post("/api/activities", json=record)
+    response = action(client, draft, "decision", action="approve")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "evidence_changed"
+
+
+def test_changed_evidence_invalidates_approval_before_delivery(client, record):
+    prepare(client, record)
+    draft = approve(client, new_draft(client))
+    record["end_state"] = "Evidence changed after approval."
+    client.post("/api/activities", json=record)
+    response = action(client, draft, "deliver")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "evidence_changed"
+
+
 def test_approved_text_hash_detects_tampering(client, record):
     prepare(client, record)
     draft = approve(client, new_draft(client))

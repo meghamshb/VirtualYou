@@ -1,3 +1,6 @@
+> This document describes the existing `develop` integration. The additional
+> pending integrations on `leo-dev` are documented in [LEO_INTEGRATION.md](LEO_INTEGRATION.md).
+
 # VirtualYou: ingestion → retrieval → approved personal replies
 
 `develop` combines `phase-2-slack-experience` (375683e) and

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 from typing import Protocol
 
 import httpx
 
 from virtual_you.backend.errors import ServiceError
+from virtual_you.backend.style import extract_style
 from virtual_you.contracts.reporting import SECTION_TITLES
 
 UNKNOWN = "Not recorded in the selected activity."
@@ -78,23 +78,7 @@ class DemoProvider:
     async def generate(self, *, task, system, user, schema):
         data = json.loads(user)
         if task == "persona":
-            messages = data["messages"]
-            text = " ".join(messages)
-            formal = bool(re.search(r"\b(dear|regards|sincerely)\b", text, re.I))
-            casual = bool(re.search(r"\b(hey|hiya|cheers|yep)\b", text, re.I))
-            words = re.findall(r"\b[a-zA-Z]{4,}\b", text.lower())
-            return {
-                "tone": "Measured and professional" if formal else "Friendly and direct",
-                "formality": "formal" if formal else ("casual" if casual else "neutral"),
-                "greeting": "Hello," if formal else ("Hey," if casual else "Hi,"),
-                "sign_off": "Regards" if formal else ("Cheers" if casual else "Thanks"),
-                "sentence_style": f"Around {round(len(text.split()) / len(messages))} words per example; concise updates.",
-                "vocabulary": [word for word, _ in Counter(words).most_common(8)],
-                "punctuation": "Occasional exclamation marks" if "!" in text else "Mostly periods",
-                "emoji": "Occasional emoji"
-                if re.search(r"[\U0001F300-\U0001FAFF]", text)
-                else "No emoji observed",
-            }
+            return extract_style(data["messages"])
         if task == "grounded_reply":
             evidence = data["evidence"]
             selected = next((e for e in evidence if e["field"] == "end_state"), None)
@@ -115,18 +99,30 @@ class DemoProvider:
                 }
 
         section("starting_state", [e for e in evidence if e["field"] == "start_state"])
-        section(
-            "approach",
-            [
-                e
-                for e in evidence
-                if e["field"] == "reasoning_summary" and "chain-of-thought" not in e["text"]
-            ],
-        )
+        approaches = []
+        for entry in evidence:
+            if entry["field"] != "reasoning_summary" or "chain-of-thought" in entry["text"]:
+                continue
+            text = entry["text"]
+            # Phase 1.1 may append visible explanations after this omission marker.
+            marker = "Reasoning occurred; omitted."
+            if text.startswith(marker):
+                text = text[len(marker) :].strip()
+                if text.startswith("Approach:"):
+                    text = text[len("Approach:") :].strip()
+            if text:
+                approaches.append({**entry, "text": text})
+        section("approach", approaches)
         section("changes", [e for e in evidence if e["field"].startswith("files_changed")])
         section("result", [e for e in evidence if e["field"] == "end_state"])
         section("links", [e for e in evidence if re.search(r"https?://", e["text"])])
-        section("blockers", [e for e in evidence if "[failed]" in e["text"]])
+        explicit_blockers = [
+            e
+            for e in evidence
+            if e["field"] == "end_state"
+            and re.search(r"\b(block(?:er|ed|ing|ers)?|waiting|awaiting)\b", e["text"], re.I)
+        ]
+        section("blockers", explicit_blockers or [e for e in evidence if "[failed]" in e["text"]])
         return report
 
 

@@ -38,26 +38,38 @@ def as_utc(value):
 
 def evidence_for(record, record_hash):
     """Stable field citations, bounded snippets, metadata preserved with every quote."""
+    record_time = as_utc(record.timestamp_range.ended_at)
     fields = [
-        ("start_state", record.start_state),
-        ("reasoning_summary", record.reasoning_summary),
-        ("end_state", record.end_state),
+        ("start_state", record.start_state, record_time),
+        ("reasoning_summary", record.reasoning_summary, record_time),
+        ("end_state", record.end_state, record_time),
     ]
-    fields += [(f"prompts.{i}", text) for i, text in enumerate(record.prompts)]
     fields += [
-        (f"files_changed.{i}", f"{item.operation.value}: {item.path}")
+        (f"prompts.{i}", text, record_time)
+        for i, text in enumerate(record.prompts)
+    ]
+    fields += [
+        (
+            f"files_changed.{i}",
+            f"{item.operation.value}: {item.path}",
+            record_time,
+        )
         for i, item in enumerate(record.files_changed)
     ]
-    fields += [(f"diffs.{i}", text) for i, text in enumerate(record.diffs)]
+    fields += [
+        (f"diffs.{i}", text, record_time)
+        for i, text in enumerate(record.diffs)
+    ]
     fields += [
         (
             f"tool_calls.{i}",
             f"{item.name} [{item.status}]\nRequested input: {item.input_summary}\nRecorded result: {item.result_summary}",
+            as_utc(item.timestamp) if item.timestamp else record_time,
         )
         for i, item in enumerate(record.tool_calls)
     ]
     result = []
-    for field, text in fields:
+    for field, text, ended_at in fields:
         if not text.strip():
             continue
         # Index every field, including the tail of long patches/tool results.
@@ -73,7 +85,7 @@ def evidence_for(record, record_hash):
                     source=record.source,
                     field=name,
                     text=text[offset : offset + 1500],
-                    ended_at=as_utc(record.timestamp_range.ended_at),
+                    ended_at=ended_at,
                     record_hash=record_hash,
                 )
             )
@@ -263,14 +275,26 @@ class RetrievalService:
             tokens = set(re.findall(r"\w+", item.text.lower()))
             matches = len(terms & tokens)
             # For reports, favor results and recorded rationale before patches.
-            priority = 1 if item.field in {"end_state", "start_state", "reasoning_summary"} else 0
+            priority = (
+                2
+                if ".work_state [" in item.text
+                else (
+                    1
+                    if item.field in {"end_state", "start_state", "reasoning_summary"}
+                    else 0
+                )
+            )
             return ((item.ended_at, priority, matches) if request.sort == "recent"
                     else (matches, priority, item.ended_at))
 
         candidates.sort(key=score, reverse=True)
         # Preserve human-readable outcomes alongside matching code chunks so
         # code/test repetitions cannot crowd all session/commit summaries out.
-        summaries = [item for item in candidates if item.field == "end_state"][:8]
+        summaries = [
+            item
+            for item in candidates
+            if item.field == "end_state" or ".work_state [" in item.text
+        ][:8]
         chosen, remaining = [], budget
         summary_budget = min(6000, budget // 3)
         for item in summaries:

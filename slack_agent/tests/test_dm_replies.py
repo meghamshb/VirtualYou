@@ -146,6 +146,33 @@ def test_events_deduplicate_polling_and_filter_scope(tmp_path):
         assert db.execute('select count(*) from slack_dm_replies').fetchone()[0]==1
 
 
+def test_follow_up_reply_uses_recent_connector_context(tmp_path):
+    monitor, _ = make_monitor(tmp_path)
+    queries = []
+
+    async def generate(**kwargs):
+        queries.append(json.loads(kwargs['user'])['incoming_message'])
+        return {'paragraphs': [{'text': 'Not recorded in the selected activity.', 'citations': []}], 'search_query': ''}
+
+    monitor.c.backend.persona.provider.generate = generate
+
+    async def run():
+        with monitor.c.backend.store.connection(write=True) as db:
+            monitor._insert(db, 'DHUMAN', {
+                'user': 'UFRIEND', 'ts': '2000000001.0',
+                'text': 'Any progress on the GitHub connector?',
+            })
+            monitor._insert(db, 'DHUMAN', {
+                'user': 'UFRIEND', 'ts': '2000000002.0',
+                'text': 'Have you updated it or anything?',
+            })
+            db.execute("UPDATE slack_dm_replies SET state='rejected' WHERE source_ts='2000000001.0'")
+        await monitor.prepare_one()
+        assert queries == ['Have you updated it or anything? GitHub connector']
+
+    asyncio.run(run())
+
+
 def test_user_delivery_uses_original_dm_and_snapshotted_identity(tmp_path):
     monitor, calls=make_monitor(tmp_path)
     monitor.send_as='user'
@@ -281,3 +308,43 @@ def test_unreviewed_sparse_profile_uses_formal_fallback(tmp_path):
         assert seen[0]['formality']=='formal'
         assert 'fewer than 10 outgoing messages' in json.dumps(calls[0]['blocks'])
     asyncio.run(run())
+
+
+def test_threaded_reply_retains_delivery_context_without_cross_thread_history(tmp_path):
+    from virtualyou_workflow.conversation_context import conversation_id
+
+    monitor, calls = make_monitor(tmp_path)
+    event = {'user': 'UFRIEND', 'channel': 'DHUMAN', 'channel_type': 'im',
+             'ts': '2000000001.0', 'thread_ts': '2000000000.0',
+             'text': 'What is the current status?'}
+    monitor.receive_event(event, 'TTEAM')
+
+    async def run():
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection() as db:
+            reply_id = db.execute('SELECT id FROM slack_dm_replies').fetchone()[0]
+        await monitor.decide(reply_id, True)
+        assert calls[-1]['thread_ts'] == event['thread_ts']
+        assert calls[-1]['mrkdwn'] is True
+        memory = monitor.context.memory(conversation_id('DHUMAN', event['thread_ts']))
+        assert memory.has_prior_delivery
+        assert memory.delivered_evidence_refs
+        assert not monitor.context.memory(conversation_id('DHUMAN')).has_prior_delivery
+
+    asyncio.run(run())
+
+
+def test_ambiguous_follow_up_preserves_owner_escalation(tmp_path):
+    monitor, calls = make_monitor(tmp_path)
+    with monitor.c.backend.store.connection(write=True) as db:
+        monitor._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': '2000000001.0',
+            'text': 'The GitHub connector and the Jira integration.'})
+        monitor._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': '2000000002.0',
+            'text': 'Did you update it?'})
+        db.execute("UPDATE slack_dm_replies SET state='rejected' WHERE source_ts='2000000001.0'")
+    asyncio.run(monitor.prepare_one())
+    with monitor.c.backend.store.connection() as db:
+        row = db.execute("SELECT id,state FROM slack_dm_replies WHERE source_ts='2000000002.0'").fetchone()
+    assert row['state'] == 'escalated'
+    assert monitor.c.backend.assistant.get(row['id'])['reason'] == 'ambiguous_reference'
+    assert not calls

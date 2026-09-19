@@ -1,6 +1,9 @@
 .venv/
 venv/
 env/
+.venv-backend/
+.venv-slack/
+.venv-wsl-slack/
 
 __pycache__/
 *.py[cod]

@@ -1,5 +1,6 @@
 **
 !Dockerfile
+!Dockerfile.backend
 !.dockerignore
 !pyproject.toml
 !README.md

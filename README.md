@@ -1,3 +1,7 @@
+> **Pending integration:** `leo-dev` combines the remaining Jira/Drive, conversation-context,
+> Member 2 and Member 4 branches. See [integration audit and demo status](docs/LEO_INTEGRATION.md).
+> The shared `develop` branch is unchanged until the integration PR is approved and merged.
+
 > **Integrated development branch:** see [the complete pipeline and branch comparison](docs/DEVELOP_INTEGRATION.md).
 > `develop` connects project ingestion, scoped RAG, GPT-4o mini, recipient style, and approved replies in the owner's original Slack DM. Configure background sources with `VIRTUAL_YOU_INGESTION_CONFIG`; raw collection is separate from each message request.
 
@@ -7,6 +11,11 @@ Members 2–3's FastAPI backend is now available: recipient personas, searchable
 activity with a refresh heartbeat, drafting, approval, Slack/Discord delivery,
 and a minimal review page. See **[BACKEND.md](BACKEND.md)** for setup, API
 contracts, Member 1/4 handoffs, deployment, and known limits.
+
+Member 2's local persona tools, portable `soul.md`, prompt API, and two-recipient
+acceptance demo are documented in **[MEMBER2.md](MEMBER2.md)**.
+Paired live-model checks and their current evidence are in
+**[MEMBER2_ACCEPTANCE.md](MEMBER2_ACCEPTANCE.md)**.
 
 ```bash
 python3.12 -m venv .venv
@@ -21,12 +30,19 @@ Open `http://127.0.0.1:8000`; get the local review key with
 are the defaults. No Slack/Discord messages are sent until live delivery is
 configured and a specific draft is reviewed, approved, and explicitly delivered.
 
+## Member 4 voice and work questions
+
+[MEMBER4.md](MEMBER4.md) covers local Whisper or optional ElevenLabs speech input,
+transcript correction, normalized voice drafts, grounded factual questions and
+persistent escalations. Both the web review page and Slack reuse the existing
+approval workflow. See the integration audit for current local and live-provider verification.
+
 ## Pathway 1 Ingestion
 
 This repository currently implements Member 1's ingestion boundary:
 
 ```text
-Claude Code / Cursor / voice transcript
+Claude Code / Cursor / Codex / voice transcript
                 ↓
         source-specific parser
                 ↓
@@ -48,7 +64,7 @@ See `INGESTION_ARCHITECTURE.md` for the component and sequence diagrams.
 
 ## Setup
 
-Python 3.9 or newer is supported.
+Python 3.11 or newer is supported; this integration was tested with Python 3.12.
 
 ```bash
 python3 -m venv .venv
@@ -59,6 +75,10 @@ python3 -m venv .venv
 ## CLI
 
 ### Docker
+
+The root `Dockerfile` builds the ingestion CLI; the separate
+[`Dockerfile.backend`](Dockerfile.backend) builds the web/API backend
+(see [BACKEND.md](BACKEND.md#deployment-and-limits)).
 
 Build the CLI image and view its commands:
 
@@ -221,8 +241,9 @@ Run the acceptance suite:
 
 Persona generation, LLM drafting, approval, and Slack/Discord delivery are
 implemented separately in `virtual_you.backend`; they consume this ingestion
-boundary. Speech-to-text, standing chatbot listeners, and MCP enrichment remain
-outside the ingestion/backend work described here.
+boundary. Member 4 adds speech-to-text and Slack question routing on top of it;
+Optional GitHub, Jira and Drive enrichment is available behind configuration flags;
+a Discord inbound listener remains follow-up work.
 
 ## Slack-native headless workflow
 

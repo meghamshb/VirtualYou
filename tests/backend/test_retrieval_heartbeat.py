@@ -7,9 +7,11 @@ from conftest import KEY, approve, new_draft, persona_payload
 from fastapi.testclient import TestClient
 
 from virtual_you.backend.app import create_app
+from virtual_you.backend.providers import UNKNOWN, DemoProvider
 from virtual_you.contracts.activity import ActivityRecord
 from virtual_you.ingest import IngestionService
 from virtual_you.ingest.store import ActivityRecordRepository
+from virtual_you.mcp.jira import FakeJiraClient, JiraIssue
 
 
 def test_real_ingestion_flows_through_to_review_and_delivery(client, settings):
@@ -29,6 +31,118 @@ def test_real_ingestion_flows_through_to_review_and_delivery(client, settings):
     assert result["status"] == "simulated"
 
 
+def test_jira_evidence_flows_to_approved_slack_payload(
+    settings,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("VIRTUAL_YOU_MCP_JIRA", "true")
+    settings.prepare()
+    settings.live_delivery = True
+    settings.slack_bot_token = "test-token"
+    settings.slack_channels = ("demo-channel",)
+    issue = JiraIssue(
+        key="ENG-184",
+        summary="Fix overlay",
+        status="In Progress",
+        status_category="indeterminate",
+        updated="2026-09-19T01:05:00Z",
+        url="https://example.atlassian.net/browse/ENG-184",
+    )
+    session = tmp_path / "jira-session.jsonl"
+    session.write_text(
+        '{"type":"user","sessionId":"jira-e2e",'
+        '"timestamp":"2026-09-19T01:00:00Z",'
+        '"message":{"content":"ENG-184 is done."}}\n',
+        encoding="utf-8",
+    )
+    IngestionService(
+        ActivityRecordRepository(settings.activity_dir),
+        data_directory=settings.data_dir,
+        workspace_root=tmp_path,
+        apply_git_overlay=False,
+        jira_client=FakeJiraClient([issue]),
+    ).ingest_file("claude", session)
+
+    class JiraProvider(DemoProvider):
+        async def generate(self, **kwargs):
+            if kwargs["task"] != "draft":
+                return await super().generate(**kwargs)
+            evidence = json.loads(kwargs["user"])["evidence"]
+            state = next(
+                item for item in evidence if "jira.work_state [" in item["text"]
+            )
+            jira_issue = next(
+                item for item in evidence if "jira.issue [" in item["text"]
+            )
+            state_result = state["text"].split("Recorded result: ", 1)[1]
+            issue_result = jira_issue["text"].split("Recorded result: ", 1)[1]
+            report = {
+                key: {"text": UNKNOWN, "citations": []}
+                for key in (
+                    "starting_state",
+                    "approach",
+                    "changes",
+                    "result",
+                    "links",
+                    "blockers",
+                )
+            }
+            report["result"] = {
+                "text": state_result,
+                "citations": [
+                    {
+                        "evidence_id": state["evidence_id"],
+                        "quote": state_result,
+                    }
+                ],
+            }
+            report["links"] = {
+                "text": issue_result,
+                "citations": [
+                    {
+                        "evidence_id": jira_issue["evidence_id"],
+                        "quote": issue_result,
+                    }
+                ],
+            }
+            return report
+
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"ok": True, "ts": "123.456"})
+
+    with TestClient(
+        create_app(
+            settings,
+            provider=JiraProvider(),
+            transport=httpx.MockTransport(handler),
+        )
+    ) as client:
+        client.headers["Authorization"] = "Bearer " + KEY
+        client.app.state.heartbeat.jira_client = FakeJiraClient([issue])
+        assert client.post("/api/refresh").status_code == 200
+        client.post("/api/personas", json=persona_payload())
+        draft = new_draft(client, retrieval={"query": "ENG-184"})
+        assert any(
+            "jira.work_state" in item["text"]
+            for item in draft["evidence"]
+        )
+        draft = approve(client, draft)
+        delivered = client.post(
+            f"/api/drafts/{draft['id']}/deliver",
+            json={"expected_revision": draft["revision"]},
+        ).json()
+        assert delivered["status"] == "delivered"
+
+    assert len(calls) == 1
+    payload = json.loads(calls[0].content)
+    assert "Jira still shows In Progress" in payload["text"]
+    assert "https://example.atlassian.net/browse/ENG-184" in payload["text"]
+
+
 def test_refresh_is_incremental_and_changes_replace_search_results(client, record, settings):
     repository = ActivityRecordRepository(settings.activity_dir)
     repository.save(record)
@@ -44,6 +158,45 @@ def test_refresh_is_incremental_and_changes_replace_search_results(client, recor
     client.post("/api/refresh")
     assert client.post("/api/retrieval/search", json={"query": "Zebracorn"}).json()["matches"] == []
     assert client.get("/api/status").json()["activity"]["count"] == 1
+
+
+def test_heartbeat_refreshes_jira_for_unchanged_activity(client, record, settings):
+    record["prompts"] = ["Check ENG-184."]
+    repository = ActivityRecordRepository(settings.activity_dir)
+    repository.save(ActivityRecord.model_validate(record))
+    heartbeat = client.app.state.heartbeat
+    heartbeat.jira_client = FakeJiraClient(
+        [
+            JiraIssue(
+                key="ENG-184",
+                summary="Fix overlay",
+                status="In Progress",
+                status_category="indeterminate",
+                url="https://example.atlassian.net/browse/ENG-184",
+            )
+        ]
+    )
+    assert client.post("/api/refresh").json()["changed"] == 1
+    heartbeat.jira_client = FakeJiraClient(
+        [
+            JiraIssue(
+                key="ENG-184",
+                summary="Fix overlay",
+                status="Done",
+                status_category="done",
+                url="https://example.atlassian.net/browse/ENG-184",
+            )
+        ]
+    )
+    assert client.post("/api/refresh").json()["changed"] == 1
+    matches = client.post(
+        "/api/retrieval/search",
+        json={"query": "ENG-184"},
+    ).json()["matches"]
+    calls = matches[0]["record"]["tool_calls"]
+    states = [call for call in calls if call["name"] == "jira.work_state"]
+    assert len(states) == 1
+    assert states[0]["result_summary"] == "ENG-184 is Done."
 
 
 def test_invalid_file_is_isolated_and_deletion_removes_index(client, record, settings):
@@ -203,3 +356,19 @@ def test_recent_search_keeps_scope_and_prefers_new_commit(client, record):
     request = RetrievalRequest(query='commit', project_ids=['allowed'], sort='recent', limit=1)
     assert retrieval.search(request)[0]['record']['session_id'] == 'new'
     assert {e.session_id for e in retrieval.evidence(request)} == {'new'}
+
+
+def test_jira_refresh_rejects_unredacted_feed_before_remote_lookup(settings, record):
+    settings.activity_feed_url = "https://ingestion.example/activities"
+    record["redacted"] = False
+    record["prompts"] = ["Check ENG-184."]
+    with TestClient(create_app(
+        settings, transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[record]))
+    )) as client:
+        client.headers["Authorization"] = "Bearer " + KEY
+        jira = FakeJiraClient([])
+        client.app.state.heartbeat.jira_client = jira
+        status = client.post("/api/refresh").json()
+        assert status["state"] == "degraded"
+        assert status["count"] == 0
+        assert jira.calls == []
