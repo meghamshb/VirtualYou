@@ -165,10 +165,35 @@ grounding checks and human review. Live model quality is not claimed by these te
 
 ## Acceptance and verification
 
-All Member 2 implementation tasks in [TEAM_DELIVERABLES.md](TEAM_DELIVERABLES.md)
-are covered: message input, eight style traits, local Markdown, five examples,
-recipient isolation, complete prompt assembly, separated evidence/style, private
-storage, and a two-recipient demonstration.
+The implementation paths for Member 2 in
+[TEAM_DELIVERABLES.md](TEAM_DELIVERABLES.md) exist, but offline tests do not
+establish the complete persona-quality acceptance criteria.
+
+| Deliverable | Current evidence | Remaining acceptance work |
+|---|---|---|
+| Input of 10–20 messages | Existing web form/API; added local CLI; count tests pass | Exercise the chosen demo onboarding flow |
+| Tone, formality, greetings, sentence style, vocabulary, emoji/punctuation | Local heuristic extraction tested; OpenAI/Ollama adapters available | Review extraction from a real model |
+| Local `soul.md` with 3–5 examples | Five sanitized verbatim examples; round-trip and private-file tests pass | Review whether the selected examples represent the intended persona |
+| Two recipient profiles | Isolation and versioning tests pass | Judge whether each generated voice is recognizable |
+| Complete assembled prompt | Python, CLI, and authenticated API verified | Exercise with the team's selected real normalized activity |
+| Facts/style separation | Data separation, redaction, injection cases, and safe salutations tested | Evaluate factual preservation in real model drafts |
+| Visibly different tone with identical facts | Deterministic demo has identical bodies; only greetings/sign-offs differ | Demonstrate substantive differences in wording, sentence style and formality without changing claims |
+| Local storage excluded from Git | Ignore and permission checks pass | Keep actual messages/profiles in ignored storage |
+| At least five tests | 19 new Member 2 cases, plus inherited persona tests | No additional test count is needed; live quality evidence is the gap |
+
+Before calling Member 2 demo-ready, run both personas through the selected
+model on the same normalized activity; compare all six sections against the
+source, including missing information, failed tests, numbers, names, URLs and
+commitments. Compare sentence structure, formality and vocabulary beyond the
+salutations. Then rehearse that profile-to-prompt-to-draft handoff with Member 3
+using the selected demo record. The deterministic demo is a regression check,
+not evidence that a model has learned a convincing personal writing style.
+
+The inherited backend already supplied profile creation, provider calls, local
+storage, a minimal form, and draft-engine integration. This branch extends those
+with portable profiles, a standalone CLI/API handoff, tighter style boundaries,
+fixtures, documentation, and 19 additional tests. The total regression count
+below includes other members' existing tests; it is not a count of new tests.
 
 ```bash
 uv run pytest tests/backend/test_member2.py tests/backend/test_persona_drafting.py
