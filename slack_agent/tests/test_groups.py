@@ -539,3 +539,44 @@ def test_review_notice_respects_disabled_auto_and_membership(group):
     with pytest.raises(ServiceError):
         g.review_notice(key)
     assert not calls
+
+
+def test_malformed_automatic_review_is_explicit_failure(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    original = model.generate
+    async def invalid(**kwargs):
+        if kwargs['task'] == 'group_auto_review':
+            return {'approved': True}
+        return await original(**kwargs)
+    model.generate = invalid
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert g.get(key)['reason'] == 'automatic_check_failed'
+    assert not calls
+
+
+def test_home_explains_review_and_notice(group):
+    from virtualyou_workflow.group_views import group_blocks
+    g, *_ = group
+    configure(g)
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    value = g.get(key)
+    value.update(review_reason='The PR is not identified.', notice_state='sent')
+    g.save(value)
+    rendered = json.dumps(group_blocks(g))
+    assert 'The PR is not identified.' in rendered
+    assert 'only a review-status notice was sent' in rendered
+    assert 'nothing has been sent' not in rendered
+
+
+def test_home_keeps_latest_group_questions_above_old_drafts(group):
+    g, *_ = group
+    configure(g)
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    blocks = g.c.home()['blocks']
+    assert len(blocks) <= 100
+    index = next(i for i, b in enumerate(blocks) if b.get('text', {}).get('text', '').startswith('Group question'))
+    assert index < 15

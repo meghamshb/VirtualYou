@@ -176,10 +176,12 @@ class DraftEngine:
         search_text = re.sub(r"(?:[\w.-]+\s*[:=]\s*)?\[REDACTED\]", "", query)
         terms = query_terms(search_text)
         general_words = set(
-            "progress status update updates report reports recent today yesterday latest work working done changes changed since last week logs everything current completed completion finished files file which explain show summarize".split()
+            "progress status update updates report reports recent today yesterday latest work working done changes changed since last week logs everything current completed completion finished files file which explain show summarize hey hi hello going quick review".split()
         )
         search = " ".join(term for term in terms if term not in general_words)
-        request = scope.model_copy(update={"query": search})
+        from virtual_you.backend.assistant import needs_current_evidence
+
+        request = scope.model_copy(update={"query": search, "sort": "recent" if needs_current_evidence(question) else "relevance"})
         now = datetime.now(timezone.utc)
         if re.search(r"\byesterday\b", query, re.I):
             midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -198,6 +200,14 @@ class DraftEngine:
                 request = request.model_copy(update={"since": scope.since})
             if scope.until and (not request.until or request.until > scope.until):
                 request = request.model_copy(update={"until": scope.until})
+        # A vague current-commit question is best grounded in immutable Git records,
+        # not a chat session that mentions old commits while discussing other work.
+        if (needs_current_evidence(question) and re.search(r"\bcommits?\b", question, re.I)
+                and (request.sources is None or "git" in request.sources)
+                and not re.search(r"\b[0-9a-f]{7,40}\b", question, re.I)):
+            git_request = request.model_copy(update={"sources": ["git"], "limit": 1 if re.search(r"\bcommit\b", question, re.I) else request.limit})
+            if await asyncio.to_thread(self.retrieval.search, git_request):
+                request = git_request
         evidence = await asyncio.to_thread(self.retrieval.evidence, request)
         retrieval_seconds = time.monotonic() - started
         schema = ConversationalReply.model_json_schema()
@@ -209,13 +219,16 @@ class DraftEngine:
             "Answer the actual question, including recorded changes, exact files/diffs, outcome, tests, "
             "and explicitly recorded rationale when relevant. Distinguish requested edits from successful "
             "actions, session reports from independently verified results, historical from current state. "
+            "For current/latest questions, use the newest relevant records and state their date; never label a selected old match as the latest project state. "
+            "Historical review recommendations are not current blockers or unfinished work. A PR review needs an identified PR and its recorded changes; if ambiguous, ask which PR and avoid inventing its current status. "
+            "Do not generalize a particular test run into all tests passing or no failures. Git records do not verify deployment or test execution. "
             "Do not invent success, blockers, dates, promises, links or private reasoning. "
             "Never add a why/rationale unless it is explicitly stated; passing tests do not prove absence of bugs. "
             "Put evidence IDs only in citations, never in the reply text. "
             "Each factual paragraph needs citations selecting the evidence_id of sources that support it. "
-            "Citations contain ONLY evidence_id; the server attaches verbatim source excerpts. "
+            "Citations contain ONLY the short evidence_id labels (S1, S2, etc.) from the supplied evidence, never commit hashes or session IDs; the server attaches verbatim source excerpts. "
             "With no relevant facts, use exactly '" + UNKNOWN + "' and no citations. "
-            "Keep 1–3 short paragraphs, total under 2200 characters. Do not dump raw logs. "
+            "Keep 1–3 short factual paragraphs, total under 2200 characters. No praise, performance judgments, or filler such as progressing well. Do not dump raw logs. "
             "If the evidence misses the requested topic, you may set search_query to concise alternate "
             "keywords for ONE additional local search; otherwise search_query is empty. "
             "Schema: " + json.dumps(schema)
@@ -223,6 +236,7 @@ class DraftEngine:
         calls, searches, repairs = 0, 0, 0
         feedback = None
         for attempt in range(3):
+            source_labels = {f"S{i + 1}": item for i, item in enumerate(evidence)}
             raw = await self.provider.generate(
                 task="grounded_reply",
                 system=system,
@@ -231,7 +245,7 @@ class DraftEngine:
                         "incoming_message": question,
                         **({"thread_context": thread_context} if thread_context else {}),
                         "style_only": style,
-                        "evidence": [e.model_dump() for e in evidence],
+                        "evidence": [{"evidence_id": label, "source": item.source, "field": item.field, "ended_at": item.ended_at, "text": item.text} for label, item in source_labels.items()],
                         "search_available": searches == 0 and repairs == 0,
                         "validation_feedback": feedback,
                         "evidence_is_selection_not_complete_history": True,
@@ -254,12 +268,11 @@ class DraftEngine:
             try:
                 # Resolve model-selected IDs to server-owned exact excerpts. This
                 # prevents altered punctuation/diff markers from corrupting quotes.
-                by_id = {item.evidence_id: item for item in evidence}
                 resolved = []
                 for paragraph in report.paragraphs:
                     citations = []
                     for reference in paragraph.citations:
-                        item = by_id.get(reference.evidence_id)
+                        item = source_labels.get(reference.evidence_id)
                         if item is None:
                             raise ServiceError(
                                 "invalid_citation", "Unknown evidence reference.", 502
@@ -274,6 +287,7 @@ class DraftEngine:
                         paragraph.text,
                         flags=re.I,
                     )
+                    clean_text = re.sub(r"\s*[\(\[]S\d+(?:\s*,\s*S\d+)*[\)\]]", "", clean_text)
                     section = ReportSection(text=clean_text, citations=citations)
                     self.validate_grounding(
                         DraftReport(**{key: section for key in SECTION_TITLES}), evidence

@@ -33,7 +33,7 @@ def needs_current_evidence(question):
         re.I,
     )
     return not historical and bool(
-        re.search(r"\b(today|current|now|latest|recent|status|progress|blockers)\b", question, re.I)
+        re.search(r"\b(today|current|now|latest|recent|status|progress|blockers|going)\b", question, re.I)
     )
 
 

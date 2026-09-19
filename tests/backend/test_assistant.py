@@ -192,3 +192,20 @@ def test_audio_ingestion_does_not_add_unrelated_github_data(settings, monkeypatc
         response = client.post(f"/api/voice/{note['id']}/confirm", json=confirmation(note))
         assert response.status_code == 200, response.text
         assert response.json()["activity"]["tool_calls"] == []
+
+
+def test_current_commit_uses_git_only_when_permitted(client, record):
+    import copy
+    seed(client, record)
+    git = copy.deepcopy(record)
+    git.update(session_id='git-current', source='git', end_state='Recorded commit abcdef1: Fix group replies.')
+    retrieval = client.app.state.retrieval
+    retrieval.upsert(git)
+    for sources, expected in [(['claude', 'git'], {'git'}), (['claude'], {'claude'})]:
+        reply = asyncio.run(client.app.state.engine.reply(
+            question='hey how is the commit going?',
+            scope=RetrievalRequest(sources=sources), style={},
+        ))
+        assert {e['source'] for e in reply['evidence']} == expected
+        ids = {e['evidence_id'] for e in reply['evidence']}
+        assert all(c['evidence_id'] in ids for p in reply['paragraphs'] for c in p['citations'])

@@ -101,6 +101,7 @@ def test_real_provider_adapter_request_and_response_contract(tmp_path, provider)
     assert sent["model"] == "test-model" and sent["messages"][0]["role"] == "system"
     if provider == "openai":
         assert calls[0].headers["Authorization"] == "Bearer test-key"
+        assert 'Required JSON response schema: {"type": "object"}' in sent["messages"][0]["content"]
     else:
         assert sent["stream"] is False and sent["format"] == {"type": "object"}
 
