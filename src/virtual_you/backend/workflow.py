@@ -18,6 +18,10 @@ class Workflow:
     def __init__(self, store, engine, gateway):
         self.store, self.engine, self.gateway = store, engine, gateway
 
+    def validate_evidence(self, draft):
+        scope = DraftRequest.model_validate(draft["request"]).retrieval
+        self.engine.retrieval.validate_snapshot(draft["evidence"], scope)
+
     @staticmethod
     def check(draft, revision, allowed):
         if draft["revision"] != revision:
@@ -113,6 +117,7 @@ class Workflow:
             )
             self.check(draft, request.expected_revision, allowed)
             if request.action == "approve":
+                self.validate_evidence(draft)
                 self.gateway.validate_destination(draft["destination"])
                 draft["status"] = "approved"
                 draft["approval"] = {
@@ -142,6 +147,7 @@ class Workflow:
                     "Approval does not match the current content and destination.",
                     409,
                 )
+            self.validate_evidence(draft)
             self.gateway.validate_destination(draft["destination"])
             draft["status"] = "delivering"
             self.store.save_draft(db, draft, "delivery_started")

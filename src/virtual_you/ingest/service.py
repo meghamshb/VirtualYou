@@ -23,8 +23,10 @@ from virtual_you.ingest.redact import assert_safe_serialized, redact_value
 from virtual_you.ingest.store import ActivityRecordRepository
 from virtual_you.ingest.voice import VoiceTranscriptAdapter
 from virtual_you.ingest.workspace import GIT_ROOT_ENV, overlay_git_state
+from virtual_you.mcp.drive import DriveClient, RestDriveClient, drive_enabled, enrich_drive
 from virtual_you.mcp.enrich import enrich, github_enabled
 from virtual_you.mcp.github import GitHubClient, RestGitHubClient
+from virtual_you.mcp.jira import JiraClient, RestJiraClient, enrich_jira, jira_enabled
 from virtual_you.mcp.oauth import load_token
 from virtual_you.mcp.observations import ObservationStore
 
@@ -47,6 +49,8 @@ class IngestionService:
         latest_work_only: bool = True,
         apply_git_overlay: bool = True,
         github_client: Optional[GitHubClient] = None,
+        jira_client: Optional[JiraClient] = None,
+        drive_client: Optional[DriveClient] = None,
     ) -> None:
         configured_root = data_directory or os.environ.get("VIRTUAL_YOU_DATA_DIR")
         root = Path(configured_root or Path.home() / ".virtual-you")
@@ -66,10 +70,20 @@ class IngestionService:
             else discover_env_secrets(env_search_root)
         )
         self._github_client = github_client
+        self._jira_client = jira_client
+        self._drive_client = drive_client
         self._observation_store = ObservationStore(self._root)
         stored = load_token(self._root)
-        if stored and stored not in self._env_secrets:
-            self._env_secrets = (*self._env_secrets, stored)
+        secrets = list(self._env_secrets)
+        if stored and stored not in secrets:
+            secrets.append(stored)
+        jira_token = (os.environ.get("JIRA_API_TOKEN") or "").strip()
+        if jira_token and jira_token not in secrets:
+            secrets.append(jira_token)
+        drive_token = (os.environ.get("GOOGLE_ACCESS_TOKEN") or "").strip()
+        if drive_token and drive_token not in secrets:
+            secrets.append(drive_token)
+        self._env_secrets = tuple(secrets)
 
     def ingest(
         self,
@@ -270,6 +284,24 @@ class IngestionService:
                 record,
                 client=client,
                 store=self._observation_store,
+                extra_secrets=self._env_secrets,
+            )
+        if jira_enabled():
+            jira = self._jira_client
+            if jira is None:
+                jira = RestJiraClient.from_env(os.environ)
+            record = enrich_jira(
+                record,
+                client=jira,
+                extra_secrets=self._env_secrets,
+            )
+        if drive_enabled():
+            drive = self._drive_client
+            if drive is None:
+                drive = RestDriveClient.from_env(os.environ)
+            record = enrich_drive(
+                record,
+                client=drive,
                 extra_secrets=self._env_secrets,
             )
         assert_safe_serialized(record, extra_secrets=self._env_secrets)
