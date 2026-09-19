@@ -112,9 +112,4 @@ class HistoryCollector:
             )
             save(progress)
         messages = [m["text"] for m in progress.get("samples", [])]
-        if len(messages) < 10:
-            raise ServiceError(
-                "insufficient_examples",
-                f"Found {len(messages)} suitable messages written by you. At least 10 are needed; retry after more conversation.",
-            )
         return messages

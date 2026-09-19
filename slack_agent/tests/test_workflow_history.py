@@ -115,12 +115,12 @@ def test_wrong_account_or_bot_token_is_rejected(identity):
     client.conversations_history.assert_not_called()
 
 
-def test_insufficient_messages_does_not_duplicate_examples():
+@pytest.mark.parametrize("count", [0, 1, 9, 10, 20])
+def test_short_history_uses_all_available_owner_examples(count):
     client = history_client()
-    client.conversations_history.return_value = {"messages": messages(9)}
-    from virtual_you.backend.errors import ServiceError
-
-    with pytest.raises(ServiceError, match="Found 9"):
-        HistoryCollector(SlackSettings("UOWNER", "TTEAM")).collect(
-            client, "UFRIEND", {}, lambda p: None
-        )
+    client.conversations_history.return_value = {"messages": messages(count)}
+    result = HistoryCollector(SlackSettings("UOWNER", "TTEAM")).collect(
+        client, "UFRIEND", {}, lambda p: None
+    )
+    assert len(result) == count
+    assert len(set(result)) == count

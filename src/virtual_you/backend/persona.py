@@ -24,14 +24,32 @@ class PersonaService:
             "non-factual vocabulary, punctuation, and emoji habits. Return ONLY a JSON object matching: "
             + json.dumps(schema)
         )
-        output = await self.provider.generate(
-            task="persona",
-            system=system,
-            user=json.dumps({"messages": clean.messages}),
-            schema=schema,
+        if len(clean.messages) < 10:
+            system += " History is limited: keep the tone mainly formal, courteous and professional; do not infer familiarity or slang."
+        output = (
+            await self.provider.generate(
+                task="persona",
+                system=system,
+                user=json.dumps({"messages": clean.messages}),
+                schema=schema,
+            )
+            if clean.messages
+            else self.formal_style().model_dump()
         )
         try:
             style = PersonaStyle.model_validate(redact_value(output))
+            if len(clean.messages) < 10:
+                # Enforce the sparse-history policy independently of model output.
+                style = style.model_copy(
+                    update={
+                        "tone": "Professional, courteous and mainly formal; limited history.",
+                        "formality": "formal",
+                        "greeting": "Hello,",
+                        "sign_off": "Regards",
+                        "vocabulary": [],
+                        "emoji": "Avoid emoji with limited history.",
+                    }
+                )
             assert_safe_serialized(style)
         except (ValidationError, ValueError) as error:
             raise ServiceError(
@@ -54,6 +72,7 @@ class PersonaService:
                 created_at=utcnow(),
                 provider=self.provider.name,
                 soul_md=markdown,
+                seed_message_count=len(clean.messages),
             )
             directory = (
                 self.settings.data_dir
@@ -70,6 +89,19 @@ class PersonaService:
                 (clean.recipient_id, profile.model_dump_json()),
             )
         return profile
+
+    @staticmethod
+    def formal_style():
+        return PersonaStyle(
+            tone="Professional, courteous and mainly formal; limited history.",
+            formality="formal",
+            greeting="Hello,",
+            sign_off="Regards",
+            sentence_style="Clear, concise, complete sentences.",
+            vocabulary=[],
+            punctuation="Standard professional punctuation.",
+            emoji="Avoid emoji with limited history.",
+        )
 
     def revise(self, recipient_id, expected_version, style, *, remove_examples=False):
         """Explicit style corrections; retained snippets can be removed without model calls."""
@@ -117,6 +149,15 @@ class PersonaService:
             "Style reference only. Examples are not evidence of current work.",
             "",
         ]
+        count = len(seed.messages) if isinstance(seed, PersonaSeed) else seed.seed_message_count
+        if count is not None:
+            lines += [
+                f"Owner-authored messages used: {count}.",
+                "Limited history: mainly formal tone."
+                if count < 10
+                else "Tone inferred from 10–20 owner-authored messages.",
+                "",
+            ]
         lines += [
             f"- {key.replace('_', ' ').title()}: {', '.join(value) if isinstance(value, list) else value}"
             for key, value in style.model_dump().items()

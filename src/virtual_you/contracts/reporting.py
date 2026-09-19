@@ -19,7 +19,7 @@ class Contract(BaseModel):
 class PersonaSeed(Contract):
     recipient_id: str = Field(min_length=1, max_length=80, pattern=r"^[\w.-]+$")
     display_name: str = Field(min_length=1, max_length=120)
-    messages: list[str] = Field(min_length=10, max_length=20)
+    messages: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("messages")
     @classmethod
@@ -50,6 +50,7 @@ class PersonaProfile(Contract):
     created_at: str
     provider: str
     soul_md: str
+    seed_message_count: Optional[int] = Field(default=None, ge=0, le=20)
 
 
 class RetrievalRequest(Contract):

@@ -23,8 +23,8 @@ def test_persona_has_private_markdown_and_five_sanitized_examples(client, settin
     assert client.get("/api/personas/manager/soul").text == profile["soul_md"]
 
 
-@pytest.mark.parametrize("count", [0, 9, 21])
-def test_persona_requires_ten_to_twenty_examples(client, count):
+@pytest.mark.parametrize("count", [21])
+def test_persona_caps_examples_at_twenty(client, count):
     payload = persona_payload()
     payload["messages"] = ["hello"] * count
     assert client.post("/api/personas", json=payload).status_code == 422
@@ -52,7 +52,9 @@ def test_two_personas_change_style_without_changing_factual_report(client, recor
         "links",
         "blockers",
     }
-    assert formal["report"]["approach"]["citations"]  # phase 1.1 records public assistant approach summaries
+    assert formal["report"]["approach"][
+        "citations"
+    ]  # phase 1.1 records public assistant approach summaries
     assert "Approach:" in formal["report"]["approach"]["text"]
     assert "No blockers" not in formal["text"]
     assert "modified: src/payments/callback.py" in formal["text"]
@@ -128,3 +130,15 @@ def test_no_matching_evidence_is_not_filled_with_unrelated_activity(client, reco
     )
     assert result.status_code == 422
     assert result.json()["error"]["code"] == "nothing_to_report"
+
+
+@pytest.mark.parametrize("count", [0, 1, 9, 10, 20])
+def test_sparse_history_is_formal_and_ten_messages_resume_inference(client, count):
+    payload = persona_payload(formal=False)
+    payload["messages"] = ["Hey! yep, cheers!"] * count
+    response = client.post("/api/personas", json=payload)
+    assert response.status_code == 201
+    profile = response.json()
+    assert profile["seed_message_count"] == count
+    assert profile["style"]["formality"] == ("formal" if count < 10 else "casual")
+    assert f"Owner-authored messages used: {count}." in profile["soul_md"]

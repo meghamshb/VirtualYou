@@ -184,12 +184,17 @@ class DMReplies:
             if error.code != 'persona_not_found':
                 raise
             profile = None
+        limited_history = profile is not None and profile.get("seed_message_count") is not None and profile["seed_message_count"] < 10
         reviewed = profile and person.get('reviewed_version') == profile['version']
         if not reviewed:
             if not self.allow_generic:
                 return
             profile = {'style': {'tone': 'Neutral, polite, concise. Do not infer personal preferences.'}}
         style_source = 'reviewed persona for this person' if reviewed else 'neutral fallback — create/review this person’s profile in Home'
+        if not reviewed and limited_history:
+            from virtual_you.backend.persona import PersonaService
+            profile = {'style': PersonaService.formal_style().model_dump()}
+            style_source = 'formal fallback — fewer than 10 outgoing messages; profile awaiting review'
         if row['state'] == 'queued':
             try:
                 started = time.monotonic()

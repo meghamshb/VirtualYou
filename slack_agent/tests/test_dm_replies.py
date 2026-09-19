@@ -237,3 +237,21 @@ def test_concurrent_workers_generate_one_approval_card(tmp_path):
         await asyncio.gather(monitor.prepare_one(),monitor.prepare_one(),monitor.prepare_one())
         assert len(calls)==1
     asyncio.run(run())
+
+
+def test_unreviewed_sparse_profile_uses_formal_fallback(tmp_path):
+    monitor,calls=make_monitor(tmp_path)
+    monitor.allow_generic=True
+    monitor.c.state.recipient('UFRIEND')['reviewed_version']=None
+    monitor.c.backend.store.get_persona=lambda key:{'version':1,'seed_message_count':3,'style':{'tone':'casual'}}
+    seen=[]
+    async def generate(**kwargs):
+        seen.append(json.loads(kwargs['user'])['style_only'])
+        return {'paragraphs':[{'text':'Not recorded in the selected activity.','citations':[]}]}
+    monitor.c.backend.persona.provider.generate=generate
+    async def run():
+        await monitor.poll()
+        await monitor.prepare_one()
+        assert seen[0]['formality']=='formal'
+        assert 'fewer than 10 outgoing messages' in json.dumps(calls[0]['blocks'])
+    asyncio.run(run())
