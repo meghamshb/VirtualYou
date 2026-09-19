@@ -327,7 +327,8 @@ class Coordinator(Member4, Experience):
             return False
         try:
             if job["kind"] == "dm_decision" and self.dm_replies:
-                await self.dm_replies.decide(job["payload"]["id"], job["payload"]["approve"])
+                await self.dm_replies.decide(job["payload"]["id"], job["payload"]["approve"],
+                    **{k: v for k, v in job["payload"].items() if k in {"edited_text", "edit_kind", "expected_revision"}})
             elif job["kind"] == "persona":
                 await self.create_persona(job)
             elif job["kind"] == "draft":

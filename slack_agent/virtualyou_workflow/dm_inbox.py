@@ -195,9 +195,9 @@ class DMInbox:
             raise ServiceError('reply_not_found', 'Reply not found.')
         return self.monitor(row['recipient']).get(reply_id)
 
-    async def decide(self, reply_id, approve):
+    async def decide(self, reply_id, approve, **kwargs):
         row = self.get(reply_id)
-        await self.monitor(row['recipient']).decide(reply_id, approve)
+        await self.monitor(row['recipient']).decide(reply_id, approve, **kwargs)
 
     async def run(self):
         async def loop(operation):

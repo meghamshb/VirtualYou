@@ -132,3 +132,39 @@ Live workspace file access requires reauthorization and a real recording trial.
 Real-time calls, synthesized speech, a distributable installer, and continuous
 remote hosting are not part of this change. A locally hosted listener still needs
 an awake, connected machine.
+
+## Learning from personal-DM approvals
+
+New personal-DM approval cards include **Edit & send**. The modal defaults to
+**This message only**; its **Send as me** action approves and sends exactly the
+edited text through the existing owner-token delivery path. Original text,
+correction category, and edit revision are retained privately for audit. Existing
+scope, evidence freshness, owner identity, and duplicate-send checks still apply.
+No real send is required by the automated tests.
+
+After a successful style edit, **Remember this preference** offers explicit
+sentence-style presets (brief/direct, professional sentences, or short bullets).
+It never derives facts or permanent rules from arbitrary edited text. Two or more
+owner-labelled style edits that shorten messages by at least 25% can suggest a
+concise style for that recipient, but never apply it automatically. The heuristic
+is a suggestion, not a semantic classifier. Mixed edits should stay message-only.
+
+- Style: explicit saving changes only the recipient's sentence-style field and
+  exports a new `soul.md` version. The preference survives later history refreshes.
+- Factual correction: the delivered reply's `edit_kind=fact`, original text,
+  corrected text, and existing grounding form an evidence-review flag. It does
+  not overwrite source evidence or establish a new verified fact. Source repair
+  remains a separate owner task.
+- Confidentiality: **Review audience policy** opens existing recipient settings
+  to restrict allowed projects. Removing text alone grants no permanent policy;
+  content-level confidential-topic rules are not inferred.
+- Dates/commitments and other one-off edits: apply only to that message.
+
+**Style history / undo** on an edited, delivered style card shows stored versions
+and restores the previous style as a new version. Version conflicts reject stale
+or replayed saves. History stores style fields only, not message examples; undo
+never resurrects deleted examples. Versions predating this migration cannot be
+recovered, but the current profile is archived before its first change. Changing
+style invalidates older pending replies under the existing policy fingerprint.
+These controls currently cover personal-DM reply cards; the browser's standalone
+report editor does not automatically learn from edits.

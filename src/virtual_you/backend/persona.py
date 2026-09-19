@@ -13,6 +13,48 @@ from virtual_you.ingest.redact import assert_safe_serialized, redact_value
 class PersonaService:
     def __init__(self, settings, store, provider):
         self.settings, self.store, self.provider = settings, store, provider
+        with store.connection(write=True) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS persona_style_history (recipient TEXT, version INTEGER, style TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(recipient,version))"
+            )
+
+    def history(self, recipient_id):
+        current = self.store.get_persona(recipient_id)
+        with self.store.connection() as db:
+            rows = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT version,style,created FROM persona_style_history WHERE recipient=? ORDER BY version DESC",
+                    (recipient_id,),
+                )
+            ]
+        if not any(row["version"] == current["version"] for row in rows):
+            rows.insert(
+                0,
+                {
+                    "version": current["version"],
+                    "style": json.dumps(current["style"]),
+                    "created": current["created_at"],
+                },
+            )
+        return [{**row, "style": json.loads(row["style"])} for row in rows]
+
+    @staticmethod
+    def _archive(db, profile):
+        db.execute(
+            "INSERT OR IGNORE INTO persona_style_history VALUES(?,?,?,?)",
+            (profile.recipient_id, profile.version, profile.style.model_dump_json(), utcnow()),
+        )
+
+    def undo(self, recipient_id, expected_version):
+        previous = next(
+            (row for row in self.history(recipient_id) if row["version"] < expected_version), None
+        )
+        if previous is None:
+            raise ServiceError("no_style_history", "There is no earlier style to restore.", 409)
+        return self.revise(
+            recipient_id, expected_version, PersonaStyle.model_validate(previous["style"])
+        )
 
     async def create(self, seed: PersonaSeed):
         clean = PersonaSeed.model_validate(redact_value(seed.model_dump()))
@@ -61,6 +103,14 @@ class PersonaService:
             row = db.execute(
                 "SELECT payload FROM personas WHERE recipient_id=?", (clean.recipient_id,)
             ).fetchone()
+            if row:
+                self._archive(db, PersonaProfile.model_validate_json(row[0]))
+            preference = db.execute(
+                "SELECT payload FROM metadata WHERE key=?",
+                ("sentence_preference:" + clean.recipient_id,),
+            ).fetchone()
+            if preference:
+                style.sentence_style = json.loads(preference[0])["sentence_style"]
             version = json.loads(row[0])["version"] + 1 if row else 1
             markdown = self._markdown(clean, style, examples, version)
             profile = PersonaProfile(
@@ -74,6 +124,7 @@ class PersonaService:
                 soul_md=markdown,
                 seed_message_count=len(clean.messages),
             )
+            self._archive(db, profile)
             directory = (
                 self.settings.data_dir
                 / "personas"
@@ -103,7 +154,15 @@ class PersonaService:
             emoji="Avoid emoji with limited history.",
         )
 
-    def revise(self, recipient_id, expected_version, style, *, remove_examples=False):
+    def revise(
+        self,
+        recipient_id,
+        expected_version,
+        style,
+        *,
+        remove_examples=False,
+        remember_sentence_style=False,
+    ):
         """Explicit style corrections; retained snippets can be removed without model calls."""
         clean = PersonaStyle.model_validate(redact_value(style.model_dump()))
         assert_safe_serialized(clean)
@@ -118,11 +177,22 @@ class PersonaService:
                 raise ServiceError(
                     "persona_conflict", "Reopen the style review; this profile has changed.", 409
                 )
+            self._archive(db, profile)
+            preference_key = "sentence_preference:" + recipient_id
+            if (
+                remember_sentence_style
+                or db.execute("SELECT 1 FROM metadata WHERE key=?", (preference_key,)).fetchone()
+            ):
+                db.execute(
+                    "INSERT OR REPLACE INTO metadata VALUES(?,?)",
+                    (preference_key, json.dumps({"sentence_style": clean.sentence_style})),
+                )
             profile.style = clean
             profile.version += 1
             if remove_examples:
                 profile.examples = []
             profile.soul_md = self._markdown(profile, clean, profile.examples, profile.version)
+            self._archive(db, profile)
             directory = (
                 self.settings.data_dir
                 / "personas"

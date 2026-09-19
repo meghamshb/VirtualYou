@@ -39,7 +39,9 @@ class DMReplies:
                                      ('received_at', 'REAL'), ('model_seconds', 'REAL'), ('ready_at', 'REAL'),
                                      ('style_source', "TEXT NOT NULL DEFAULT 'reviewed persona'"),
                                      ('grounding', "TEXT NOT NULL DEFAULT '{}'"),
-                                     ('policy', "TEXT NOT NULL DEFAULT ''")]:
+                                     ('policy', "TEXT NOT NULL DEFAULT ''"),
+                                     ('original_reply', 'TEXT'), ('edit_kind', 'TEXT'),
+                                     ('edit_revision', 'INTEGER NOT NULL DEFAULT 0')]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE slack_dm_replies ADD COLUMN {name} {definition}')
             # Never replay an interrupted send: it may already have reached Slack.
@@ -153,8 +155,12 @@ class DMReplies:
         if not status:
             blocks.append({'type': 'actions', 'elements': [
                 {'type': 'button', 'text': plain('Approve & send as me' if as_user else 'Approve & send as bot'), 'action_id': 'vy_dm_approve', 'value': row['id']},
+                {'type': 'button', 'text': plain('Edit & send'), 'action_id': 'vy_dm_edit', 'value': row['id']},
                 {'type': 'button', 'text': plain('Reject'), 'action_id': 'vy_dm_reject', 'value': row['id']},
             ]})
+        if status and row.get('state') == 'sent' and row.get('original_reply'):
+            from .learning import learning_buttons
+            blocks.extend(learning_buttons(self.c, row))
         return blocks
 
     async def prepare_one(self):
@@ -242,8 +248,13 @@ class DMReplies:
         with self.c.backend.store.connection(write=True) as db:
             db.execute("UPDATE slack_dm_replies SET state='pending',card_ts=?,ready_at=? WHERE id=?", (sent['ts'], time.time(), row['id']))
 
-    async def decide(self, reply_id, approve):
+    async def decide(self, reply_id, approve, *, edited_text=None, edit_kind="message", expected_revision=None):
         row = self.get(reply_id)
+        if edited_text is not None:
+            from .learning import validate_edit
+            edited_text = validate_edit(edited_text, edit_kind)
+            if expected_revision != row['edit_revision']:
+                raise ServiceError('reply_changed', 'Reopen the edit form; this reply has changed.', 409)
         if approve and self.c.preferences().get('paused'):
             raise ServiceError('workflow_paused', 'Resume drafting before sending.')
         if row['state'] != 'pending':
@@ -263,10 +274,14 @@ class DMReplies:
             from .user_delivery import verified_owner_client
             user_client = await verified_owner_client(self.c, self.recipient, row['channel'])
         with self.c.backend.store.connection(write=True) as db:
-            updated = db.execute("UPDATE slack_dm_replies SET state=? WHERE id=? AND state='pending'",
-                ('sending' if approve else 'rejected', reply_id)).rowcount
+            updated = db.execute("UPDATE slack_dm_replies SET state=? WHERE id=? AND state='pending' AND edit_revision=?",
+                ('sending' if approve else 'rejected', reply_id, row['edit_revision'])).rowcount
+            if updated and edited_text is not None:
+                db.execute("UPDATE slack_dm_replies SET original_reply=COALESCE(original_reply,reply),reply=?,edit_kind=?,edit_revision=edit_revision+1 WHERE id=?",
+                           (edited_text, edit_kind, reply_id))
         if not updated:
             return  # Double-clicks and Slack retries cannot send twice.
+        row = self.get(reply_id)
         status = 'Rejected. Nothing sent.'
         if approve:
             try:
@@ -280,12 +295,15 @@ class DMReplies:
                 raise
             with self.c.backend.store.connection(write=True) as db:
                 db.execute("UPDATE slack_dm_replies SET state='sent' WHERE id=?", (reply_id,))
+            row = self.get(reply_id)
             status = 'Sent as you in the original DM.'
         await asyncio.to_thread(slack_call, self.c.bot().chat_update, channel=row['card_channel'], ts=row['card_ts'],
             text=status, blocks=self.blocks(row, status))
 
 
 def register_dm_actions(app, coordinator, event_key):
+    from .learning import register_learning
+    register_learning(app, coordinator, event_key)
     def make_handler(approve):
         def handler(ack, body):
             ack()

@@ -121,7 +121,7 @@ def test_uncertain_delivery_not_replayed(tmp_path):
 def test_buttons_owner_only():
     handlers = {}
     jobs = []
-    app=SimpleNamespace(action=lambda name:lambda fn:handlers.update({name:fn}))
+    app=SimpleNamespace(action=lambda name:lambda fn:handlers.update({name:fn}), view=lambda name:lambda fn:handlers.update({name:fn}))
     c=SimpleNamespace(authorized=lambda body:body['user']=='owner',
         dm_replies=SimpleNamespace(get=lambda key:None),
         state=SimpleNamespace(enqueue=lambda *args:jobs.append(args)))
