@@ -9,6 +9,7 @@ try {
   const launch = () => electron.launch({ args: ['.'], env: { ...process.env, VIRTUAL_YOU_DESKTOP_TEST_DATA: dir } });
   app = await launch();
   let page = await app.firstWindow();
+  await page.getByRole('button', {name: 'Developer / preview'}).click();
   await page.getByRole('button', {name: 'Explore the preview'}).click();
   assert.deepEqual(await page.evaluate(() => [typeof window.virtualYou, typeof window.require]), ['object', 'undefined']);
   await page.getByRole('button', {name: 'Connect Slack', exact: true}).click();
@@ -21,6 +22,7 @@ try {
   await app.close();
   app = await launch();
   page = await app.firstWindow();
+  await page.getByRole('button', {name: 'Developer / preview'}).click();
   await page.getByRole('heading', {name: 'Your workspace is taking shape.'}).waitFor();
   await page.getByRole('button', {name: 'Try a sample approval'}).click();
   await page.getByRole('button', {name: 'Approve sample', exact: true}).click();

@@ -1,8 +1,14 @@
-# VirtualYou desktop UI
+# VirtualYou desktop
+
+Customer OAuth, pairing and collector implementation is now included. See
+[Customer deployment](docs/CUSTOMER_DEPLOYMENT.md) for the real flow and the
+one-time operator activation still required. The sections below describe the
+original developer preview and local adapter, which remain available.
+
 
 An Electron + React + TypeScript interface on `feat/app`, based on committed
-`develop` at 092151c. This is a UI milestone, not the completed hosted onboarding
-service. The existing Python, Slack, MCP and delivery code is unchanged.
+`develop` at 092151c. The original UI milestone is retained below; customer implementation lives in
+`src/virtual_you/hosted` and the desktop customer bridge.
 
 ## Try it
 
@@ -40,9 +46,9 @@ It does not bypass server checks or retry uncertain sends. Live delivery identit
 and simulation settings are controlled by the backend. Existing project policies
 and integration configuration stay in Slack; the UI explicitly says so.
 
-Production hosted OAuth, device pairing, collector lifecycle management, complete
-DM/group approval APIs, account/source selection and a bundled Python runtime are
-not implemented here. Integration rows in local mode do not infer an authorization
+In the original developer preview, hosted OAuth and collector management are not
+used. The separate default customer flow implements these features; production
+activation and signed distribution remain operator tasks. Integration rows in local mode do not infer an authorization
 from evidence. They explain that authorization remains managed by the deployment.
 See [the refined brief](docs/BRIEF.md) and [relay contract](docs/RELAY_CONTRACT.md).
 

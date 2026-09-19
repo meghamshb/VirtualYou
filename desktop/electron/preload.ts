@@ -7,3 +7,7 @@ const api: Bridge = {
   diagnostics: () => ipcRenderer.invoke("vy:diagnostics"),
 };
 contextBridge.exposeInMainWorld("virtualYou", api);
+
+contextBridge.exposeInMainWorld("virtualYouCustomer", {
+  act: (action: unknown) => ipcRenderer.invoke("vy:customer", action),
+});

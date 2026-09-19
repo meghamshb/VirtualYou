@@ -7,6 +7,7 @@ import { actionSchema, type Workspace } from "../shared/model";
 import { freshWorkspace, transition, diagnosticText } from "../shared/preview";
 import { LocalBackend, localOrigin } from "./backend";
 import { CredentialVault, trustedFrame } from "./security";
+import { Customer } from "./customer";
 if (!app.isPackaged && process.env.VIRTUAL_YOU_DESKTOP_TEST_DATA) {
   app.setPath(
     "userData",
@@ -47,6 +48,41 @@ async function disconnect() {
 async function main() {
   await app.whenReady();
   await mkdir(app.getPath("userData"), { recursive: true, mode: 0o700 });
+  let serviceUrl = "";
+  try {
+    serviceUrl =
+      JSON.parse(
+        await readFile(path.join(app.getAppPath(), "service.json"), "utf8"),
+      ).baseUrl || "";
+  } catch {
+    /* undeployed operator build */
+  }
+  const customerVault = new CredentialVault(
+    {
+      available: () =>
+        safeStorage.isEncryptionAvailable() &&
+        !(
+          process.platform === "linux" &&
+          safeStorage.getSelectedStorageBackend() === "basic_text"
+        ),
+      encrypt: (v) => safeStorage.encryptString(v),
+      decrypt: (v) => safeStorage.decryptString(v),
+    },
+    {
+      read: () => readFile(path.join(app.getPath("userData"), "customer.enc")),
+      write: (value) =>
+        writeFile(path.join(app.getPath("userData"), "customer.enc"), value, {
+          mode: 0o600,
+        }),
+    },
+  );
+  const customer = new Customer(serviceUrl, customerVault);
+  await customer.init();
+  app.on("before-quit", () => customer.stop());
+  ipcMain.handle("vy:customer", async (event, action) => {
+    authorize(event);
+    return customer.act(action);
+  });
   try {
     const saved = JSON.parse(
       await readFile(

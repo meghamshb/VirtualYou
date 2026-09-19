@@ -1,3 +1,5 @@
+> Historical UI milestone document. See [Customer deployment](CUSTOMER_DEPLOYMENT.md) for the current implementation and activation requirements.
+
 # Refined implementation prompt: VirtualYou desktop UI
 
 Build the first desktop interface for VirtualYou on `feat/app`, branched from the

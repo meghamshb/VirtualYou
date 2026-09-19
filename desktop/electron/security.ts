@@ -12,7 +12,10 @@ export class CredentialVault {
     private cipher: Cipher,
     private storage: PrivateStorage,
   ) {}
-  async save(value: { port: number; key: string }) {
+  available() {
+    return this.cipher.available();
+  }
+  async save(value: unknown) {
     if (!this.cipher.available())
       throw new Error("Secure system storage is unavailable.");
     await this.storage.write(this.cipher.encrypt(JSON.stringify(value)));

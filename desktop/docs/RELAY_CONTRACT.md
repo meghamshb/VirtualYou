@@ -1,3 +1,5 @@
+> Historical UI milestone document. See [Customer deployment](CUSTOMER_DEPLOYMENT.md) for the current implementation and activation requirements.
+
 # Hosted onboarding boundary (proposed, not deployed)
 
 The operator owns provider app registrations, client secrets, signing keys, stable

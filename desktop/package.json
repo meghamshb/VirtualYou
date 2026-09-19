@@ -16,7 +16,9 @@
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint src shared electron tests",
     "format": "prettier --write src shared electron tests vite.config.ts",
-    "test:electron": "npm run build && node scripts/smoke-electron.mjs"
+    "test:electron": "npm run build && node scripts/smoke-electron.mjs",
+    "build:collector": "node scripts/bundle-collector.mjs",
+    "package:customer": "npm run build:collector && npm run build && electron-builder --mac --dir"
   },
   "build": {
     "appId": "com.virtualyou.desktop",
@@ -27,7 +29,8 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json"
+      "package.json",
+      "service.json"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -36,7 +39,16 @@
       ],
       "hardenedRuntime": true
     },
-    "asar": true
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "collector-dist/virtual-you-collector",
+        "to": "collector",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   },
   "dependencies": {
     "lucide-react": "^1.47.0",

@@ -1,3 +1,5 @@
+> Historical UI milestone document. See [Customer deployment](CUSTOMER_DEPLOYMENT.md) for the current implementation and activation requirements.
+
 # Desktop UI verification — 20 September 2026
 
 Base: committed develop 092151c. Changes are isolated to desktop/ and ignore rules.

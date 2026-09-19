@@ -13,6 +13,9 @@ class SourceKind(str, Enum):
     CODEX = "codex"
     VOICE = "voice"
     GIT = "git"
+    GITHUB = "github"
+    JIRA = "jira"
+    DRIVE = "drive"
 
 
 class FileOperation(str, Enum):

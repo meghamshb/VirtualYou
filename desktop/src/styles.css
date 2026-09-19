@@ -1346,3 +1346,135 @@ main {
     font-size: 11px;
   }
 }
+.customer-shell {
+  min-height: 100vh;
+  background: #f7f9f8;
+}
+.customer-header {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 22px 40px;
+  border-bottom: 1px solid var(--border);
+  background: white;
+}
+.customer-header strong {
+  font-size: 25px;
+  letter-spacing: -1px;
+}
+.customer-header span {
+  flex: 1;
+  color: #66746f;
+}
+.customer-main {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 54px 40px;
+}
+.customer-main h1 {
+  font-size: 42px;
+}
+.customer-intro {
+  font-size: 20px;
+  color: #63716c;
+  margin: 18px 0 40px;
+}
+.customer-main section {
+  padding: 32px;
+  margin: 24px 0;
+  background: white;
+  border: 1px solid #e1e8e4;
+  border-radius: 12px;
+}
+.customer-main h2 {
+  font-size: 23px;
+  margin-bottom: 16px;
+}
+.customer-main section p {
+  line-height: 1.6;
+  margin: 12px 0;
+}
+.customer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.customer-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.customer-choice span {
+  flex: 1;
+}
+.customer-choice select {
+  max-width: 55%;
+  padding: 10px;
+  border: 1px solid #ccd7d0;
+  border-radius: 6px;
+}
+.customer-question {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+}
+.customer-question textarea {
+  padding: 14px;
+  border: 1px solid #ccd7d0;
+  border-radius: 6px;
+}
+.customer-draft {
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px solid #dae4de;
+  border-radius: 8px;
+}
+.pair-code {
+  padding: 20px;
+  background: #edf5ef;
+  margin-top: 20px;
+}
+.pair-code strong {
+  font-size: 32px;
+  letter-spacing: 6px;
+}
+.customer-footer {
+  padding: 20px;
+  text-align: center;
+  color: #65746a;
+}
+@media (max-width: 780px) {
+  .customer-header {
+    padding: 20px;
+    flex-wrap: wrap;
+  }
+  .customer-header span {
+    display: none;
+  }
+  .customer-main {
+    padding: 28px 16px;
+  }
+  .customer-main h1 {
+    font-size: 30px;
+  }
+  .customer-main section {
+    padding: 20px;
+  }
+  .customer-main .integration-row {
+    flex-wrap: wrap;
+  }
+}
+.customer-shell {
+  background: #fff;
+}
+.customer-main section {
+  border: 0;
+  border-bottom: 1px solid #e1e8e4;
+  border-radius: 0;
+  padding: 30px 0;
+}
+.customer-header {
+  background: #f4f7f5;
+}

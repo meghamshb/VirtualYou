@@ -20,7 +20,7 @@ GROUP_STYLES = {
     "formal": "Clear, concise professional sentences for a group. No private greetings or familiarity.",
     "bullets": "Brief factual bullets for a group. Preserve uncertainty and distinguish recorded from verified outcomes.",
 }
-SOURCES = {"claude", "cursor", "codex", "git", "voice"}
+SOURCES = {"claude", "cursor", "codex", "git", "voice", "github", "jira", "drive"}
 
 
 class GroupConversations:

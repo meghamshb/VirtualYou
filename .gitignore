@@ -46,3 +46,8 @@ desktop/dist-electron/
 desktop/release/
 desktop/playwright-report/
 desktop/test-results/
+
+desktop/collector-dist/
+desktop/collector-build/
+.virtual-you-hosted/
+.build-venv/
