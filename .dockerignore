@@ -11,17 +11,3 @@
 **/*.py[cod]
 **/*.egg-info/
 **/.env*
-!Dockerfile.customer
-!slack_agent/
-!slack_agent/pyproject.toml
-!slack_agent/listeners/
-!slack_agent/listeners/**
-!slack_agent/virtualyou_workflow/
-!slack_agent/virtualyou_workflow/**
-!slack_agent/agent/
-!slack_agent/agent/**
-!slack_agent/thread_context/
-!slack_agent/thread_context/**
-**/__pycache__/
-**/*.py[cod]
-**/.env*

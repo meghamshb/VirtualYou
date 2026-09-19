@@ -87,7 +87,7 @@ class RetrievalRequest(Contract):
     query: str = Field(default="", max_length=1000)
     session_ids: list[str] = Field(default_factory=list, max_length=20)
     project_ids: Optional[list[str]] = Field(default=None, max_length=100)
-    sources: Optional[list[Literal["claude", "cursor", "codex", "voice", "git", "github", "jira", "drive"]]] = None
+    sources: Optional[list[Literal["claude", "cursor", "codex", "voice", "git"]]] = None
     since: Optional[datetime] = None
     until: Optional[datetime] = None
     limit: int = Field(default=5, ge=1, le=10)

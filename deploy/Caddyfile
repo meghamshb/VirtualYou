@@ -1,3 +1,0 @@
-{$VY_PUBLIC_URL} {
-    reverse_proxy relay:8000
-}

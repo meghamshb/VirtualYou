@@ -63,7 +63,7 @@ class Experience:
         data = job["payload"]
         if job["kind"] == "preferences":
             sources = data.get("sources", [])
-            if any(s not in {"claude", "cursor", "codex", "voice", "git", "github", "jira", "drive"} for s in sources):
+            if any(s not in {"claude", "cursor", "codex", "voice", "git"} for s in sources):
                 raise ServiceError("invalid_sources", "Choose supported work sources.")
             self.backend.store.set_metadata(
                 "slack_preferences", {"sources": sources, "paused": bool(data.get("paused"))}
