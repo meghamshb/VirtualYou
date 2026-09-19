@@ -580,3 +580,37 @@ def test_home_keeps_latest_group_questions_above_old_drafts(group):
     assert len(blocks) <= 100
     index = next(i for i, b in enumerate(blocks) if b.get('text', {}).get('text', '').startswith('Group question'))
     assert index < 15
+
+
+def test_auto_review_repairs_once_and_rechecks_before_send(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    original = model.generate
+    reviews = []
+    feedback = []
+    async def corrected(**kwargs):
+        if kwargs['task'] == 'group_auto_review':
+            reviews.append(True)
+            return {'eligible': len(reviews) == 2, 'reason': 'Remove the unsupported test claim.' if len(reviews) == 1 else 'Supported by recorded changes.'}
+        data = json.loads(kwargs['user'])
+        feedback.append(data.get('validation_feedback'))
+        return await original(**kwargs)
+    model.generate = corrected
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert len(reviews) == 2
+    assert any('unsupported test claim' in (f or '') for f in feedback)
+    assert g.get(key)['review_revisions'] == 1
+    assert g.get(key)['state'] == 'sent'
+    assert len(calls) == 1
+
+
+def test_repeated_review_rejection_stops_after_one_revision(group):
+    g, slack, calls, prompts, model = group
+    configure(g, automatic=True)
+    model.eligible = False
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert sum(task == 'group_auto_review' for task, data in prompts) == 2
+    assert g.get(key)['state'] == 'pending'
+    assert not calls

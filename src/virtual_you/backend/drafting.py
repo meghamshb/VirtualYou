@@ -155,7 +155,7 @@ class DraftEngine:
                 )
         assert_safe_serialized(report)
 
-    async def reply(self, *, question, scope, style, thread_context=None):
+    async def reply(self, *, question, scope, style, thread_context=None, review_feedback=None):
         """Shared RAG/provider path for personal DMs; never delivers anything.
 
         One model call normally. The model may request one scoped search refinement
@@ -228,13 +228,13 @@ class DraftEngine:
             "Each factual paragraph needs citations selecting the evidence_id of sources that support it. "
             "Citations contain ONLY the short evidence_id labels (S1, S2, etc.) from the supplied evidence, never commit hashes or session IDs; the server attaches verbatim source excerpts. "
             "With no relevant facts, use exactly '" + UNKNOWN + "' and no citations. "
-            "Keep 1–3 short factual paragraphs, total under 2200 characters. No praise, performance judgments, or filler such as progressing well. Do not dump raw logs. "
+            "Keep 1–3 short factual paragraphs, total under 2200 characters. Describe only recorded changes. Do not conclude with predicted benefits, recommendations, or promises (for example should streamline, will improve, ensures robustness). No praise, performance judgments, or filler such as progressing well. Do not dump raw logs. "
             "If the evidence misses the requested topic, you may set search_query to concise alternate "
             "keywords for ONE additional local search; otherwise search_query is empty. "
             "Schema: " + json.dumps(schema)
         )
         calls, searches, repairs = 0, 0, 0
-        feedback = None
+        feedback = redact_text(review_feedback)[:1500] if review_feedback else None
         for attempt in range(3):
             source_labels = {f"S{i + 1}": item for i, item in enumerate(evidence)}
             raw = await self.provider.generate(

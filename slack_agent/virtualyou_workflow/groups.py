@@ -495,29 +495,47 @@ class GroupConversations:
                     "additionalProperties": False,
                 }
                 try:
-                    check = await self.c.backend.engine.provider.generate(
-                        task="group_auto_review",
-                        schema=schema,
-                        system=AUTO_REVIEW_SYSTEM,
-                        user=json.dumps(
-                            {
-                                "question": value["question"],
-                                "reply": value["result"],
-                                "thread_context": context,
-                            }
-                        ),
-                    )
-                    if type(check.get("eligible")) is not bool or not isinstance(check.get("reason"), str) or not check["reason"].strip():
-                        raise ValueError("Invalid automatic review response")
-                    value["auto_eligible"] = check.get("eligible") is True and not re.search(
-                        r"\b((?:i|we)\s+will|promise|guarantee|should|recommend|conflict|contradict|uncertain)\b",
-                        value["result"]["text"],
-                        re.I,
-                    )
-                    value["review_reason"] = redact_text(str(check.get("reason", "")))[:1000]
-                    value["reason"] = (
-                        "eligible" if value["auto_eligible"] else "automatic_review_required"
-                    )
+                    for review_attempt in range(2):
+                        check = await self.c.backend.engine.provider.generate(
+                            task="group_auto_review",
+                            schema=schema,
+                            system=AUTO_REVIEW_SYSTEM,
+                            user=json.dumps(
+                                {
+                                    "question": value["question"],
+                                    "reply": value["result"],
+                                    "thread_context": context,
+                                }
+                            ),
+                        )
+                        if type(check.get("eligible")) is not bool or not isinstance(check.get("reason"), str) or not check["reason"].strip():
+                            raise ValueError("Invalid automatic review response")
+                        blocked_language = re.search(
+                            r"\b((?:i|we)\s+will|promise|guarantee|should|recommend|conflict|contradict|uncertain)\b",
+                            value["result"]["text"],
+                            re.I,
+                        )
+                        value["auto_eligible"] = check["eligible"] and not blocked_language
+                        value["review_reason"] = (
+                            "Remove speculative recommendations, promises, or uncertainty from the reply (flagged phrase: " + blocked_language.group(0) + "). Describe only recorded changes, without predicted benefits."
+                            if blocked_language else redact_text(check["reason"])[:1000]
+                        )
+                        value["reason"] = (
+                            "eligible" if value["auto_eligible"] else "automatic_review_required"
+                        )
+                        if value["auto_eligible"] or review_attempt:
+                            break
+                        value["initial_review_reason"] = value["review_reason"]
+                        revised = await self.c.backend.engine.reply(
+                            question=value["question"], scope=self.scope(policy, value),
+                            style=style, thread_context=context,
+                            review_feedback="Revise the previous answer to remove unsupported claims. Do not invent replacements. Prefer a short factual answer. Reviewer feedback: " + value["review_reason"],
+                        )
+                        problem = self.c.backend.assistant.evidence_problem(value["question"], revised)
+                        if problem:
+                            raise ServiceError(problem, "Revised reply lacks usable evidence.")
+                        self.c.backend.retrieval.validate_snapshot(revised["evidence"], self.scope(policy, value))
+                        value.update(result=revised, review_revisions=1)
                 except Exception:
                     value["reason"] = "automatic_check_failed"
             self.save(value)
