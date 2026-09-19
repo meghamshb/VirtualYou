@@ -1,8 +1,9 @@
 # Virtual You — Members 2–3 backend
 
-This branch builds on ingestion commit `5596cae` from
-`phase-1,-injestion-pipeline`. It imports Member 1's existing `ActivityRecord`
-without modifying the parsers or the ingestion contract.
+Develop integrates the ingestion pipeline, per-recipient personas, grounded replies,
+Git/Codex collection, optional GitHub observations, and Member 4 voice/escalation.
+All sources still hand off through the existing redacted `ActivityRecord` contract.
+See [Member 4 integration](MEMBER4.md) for the voice and Slack review flow.
 
 ## Why FastAPI and SQLite
 
@@ -27,7 +28,7 @@ Optional normalized HTTP feed ──────┼─ heartbeat / explicit refr
 Authenticated ActivityRecord POST ─┘              │
                                           SQLite + FTS index
                                                   │
-10–20 examples → persona + private soul.md ─┐       │
+0–20 outgoing examples → persona + private soul.md ─┐       │
                                           └─ retrieval + prompt assembly
                                                   │
                                           interchangeable text model
@@ -49,8 +50,7 @@ snapshot; regeneration explicitly retrieves fresh evidence.
 
 ## Run locally
 
-Use Python 3.12 on macOS/Linux (the existing ingestion package retains its
-Python 3.9 minimum; the backend is verified on 3.12). Run from the repository:
+Use Python 3.11 or newer on macOS/Linux. Run from the repository:
 
 ```bash
 python3.12 -m venv .venv

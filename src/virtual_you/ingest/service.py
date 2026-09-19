@@ -28,7 +28,6 @@ from virtual_you.mcp.github import GitHubClient, RestGitHubClient
 from virtual_you.mcp.oauth import load_token
 from virtual_you.mcp.observations import ObservationStore
 
-
 PathLike = Union[str, Path]
 
 
@@ -47,6 +46,7 @@ class IngestionService:
         latest_work_only: bool = True,
         apply_git_overlay: bool = True,
         github_client: Optional[GitHubClient] = None,
+        apply_github_enrichment: bool = True,
     ) -> None:
         configured_root = data_directory or os.environ.get("VIRTUAL_YOU_DATA_DIR")
         root = Path(configured_root or Path.home() / ".virtual-you")
@@ -65,6 +65,7 @@ class IngestionService:
             if env_secrets is not None
             else discover_env_secrets(env_search_root)
         )
+        self._apply_github_enrichment = apply_github_enrichment
         self._github_client = github_client
         self._observation_store = ObservationStore(self._root)
         stored = load_token(self._root)
@@ -260,7 +261,7 @@ class IngestionService:
             existing = self._repository.get(record.session_id)
             if existing is not None:
                 record = self._merge_records(existing, record)
-        if github_enabled():
+        if self._apply_github_enrichment and github_enabled():
             client = self._github_client
             if client is None:
                 client = RestGitHubClient.from_env(

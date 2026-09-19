@@ -229,3 +229,10 @@ outside the ingestion/backend work described here.
 The existing Slack agent is integrated under [slack_agent/](slack_agent/WORKFLOW.md). Select a person once in Slack Home to build a persona from your own DM history, automatically prepare activity-based drafts, and review them with Slack buttons and modals. One-time user OAuth is required for private DM history. The Slack process runs the backend heartbeat in-process; no dashboard is required.
 
 The phase-2 Slack experience adds browser OAuth (no user-token copying), source opt-in, recipient/project policies, editable style review, and an opt-in message shortcut. A local macOS menu-bar companion controls connection and the login service. See [the workflow guide](slack_agent/WORKFLOW.md) for operator setup and distribution limits.
+
+### Voice memos and owner escalation
+
+Develop includes the selectively integrated Member 4 features: reviewed speech-to-text
+memos feed the existing evidence pipeline, while uncertain colleague questions appear
+in the owner's Slack inbox. Current personas, low-history defaults, GPT-4o mini/RAG,
+and approved personal-DM replies are preserved. See [MEMBER4.md](MEMBER4.md).

@@ -12,6 +12,7 @@ from virtual_you.contracts.reporting import DeliveryReceipt, utcnow
 class DeliveryGateway:
     def __init__(self, settings, client):
         self.settings, self.client = settings, client
+        self.user_sender = None
 
     def validate_destination(self, destination):
         platform, target = destination["platform"], destination["target"]
@@ -19,6 +20,15 @@ class DeliveryGateway:
             raise ServiceError(
                 "invalid_destination", "Thread timestamps are supported only for Slack.", 422
             )
+        if destination.get("send_as") == "user":
+            if platform != "slack" or self.user_sender is None:
+                raise ServiceError(
+                    "user_delivery_unavailable",
+                    "Start the connected Slack agent to send as you.",
+                    503,
+                )
+            self.user_sender.validate(destination)
+            return
         if not self.settings.live_delivery:
             return
         if platform == "slack":
@@ -54,6 +64,12 @@ class DeliveryGateway:
         if not self.settings.live_delivery:
             return receipt
         platform = destination["platform"]
+        if destination.get("send_as") == "user":
+            if self.user_sender is None:
+                return receipt.model_copy(
+                    update={"status": "failed", "error_code": "user_delivery_unavailable"}
+                )
+            return await self.user_sender.send(draft, receipt)
         if platform == "discord" and len(draft["text"]) > 2000:
             return receipt.model_copy(
                 update={"status": "failed", "error_code": "discord_message_too_long"}

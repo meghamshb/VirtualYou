@@ -74,26 +74,50 @@ The legacy `app.py` Socket Mode entry point remains available for operators, but
 
 Tests use fake Slack and model/delivery transports, including a real Bolt OAuth callback with mocked code exchange, state-replay rejection, owner/scope checks, source/project filtering, style review, stale-policy approval blocking, and reply opt-in. No actual workspace authorization or live messages were used in development. The menu-bar app can be built/validated locally without granting Slack access.
 
-Refresh uses lexical RAG (SQLite FTS), not embeddings. Project policies scope retrieved evidence; they cannot automatically classify secrets inside arbitrary human edits. Review every outbound draft. Profile removal of snippets updates the current profile and soul export; system backups are outside app control. Group DMs, unsolicited inbox monitoring, Discord onboarding, and a general free-form reply engine are not implemented.
+Refresh uses lexical RAG (SQLite FTS), not embeddings. Project policies scope retrieved evidence; they cannot automatically classify secrets inside arbitrary human edits. Review every outbound draft. Profile removal of snippets updates the current profile and soul export; system backups are outside app control. Group DMs, Discord onboarding, real-time voice calls, and spoken replies are not implemented.
 
 References: [Slack OAuth](https://docs.slack.dev/authentication/installing-with-oauth/), [history token access](https://docs.slack.dev/reference/methods/conversations.history/), [Slack modals](https://docs.slack.dev/surfaces/modals/).
 
-### Opt-in personal DM reply test
+### Personal DMs and Member 4
 
-Set `VIRTUAL_YOU_DM_WATCH_RECIPIENT` to one selected Slack member ID and restart the OAuth runtime. That person must already have a saved, reviewed profile and an existing human DM. The listener polls only that conversation every 65 seconds using the owner's existing authorization. It starts from activation time; it does not reply to historical messages. Source text is redacted before SQLite persistence and model submission. The configured LLM receives the sanitized incoming message and style descriptors, without retained style examples or work evidence.
+Set `VIRTUAL_YOU_DM_WATCH_RECIPIENT='*'` for incoming human one-to-one DMs,
+or a selected Slack member ID for a single conversation. Signed user `message.im`
+events are the primary input; bounded polling recovers missed events. Event and
+poll duplicates share one reply ID. Own messages, bots, group DMs, and historical
+messages before activation are excluded.
 
-The owner receives a review card in their VirtualYou DM. **Approve & send as bot** sends the exact draft from VirtualYou to the colleague's bot DM, not into the human-to-human conversation. Reject sends nothing. This explicitly approved conversational delivery is separate from the work-report preview setting. Pause in Setup stops both preparation and approval sending. Clearing the watch variable and restarting disables the listener. Interrupted or uncertain sends are not replayed; check Slack before manually retrying. SQLite table `slack_dm_replies` records pending, failed, and uncertain states. This first version has no conversational draft editing or multi-message context, and does not provide project updates from RAG.
+Each sender keeps a separate profile. Profiles use up to 20 outgoing messages;
+below ten, use all available messages with a formal default. Unreviewed sparse
+profiles also use a labelled formal fallback. Existing reviewed profiles remain
+unchanged when another colleague is added.
 
-For lower latency, subscribe to **message.im under user events** in Slack Event Subscriptions (the existing user `im:history` permission is required). Signed events are restricted to the selected person and DM and deduplicated against polling. Polling remains a recovery path; internal workspaces may set `VIRTUAL_YOU_DM_POLL_SECONDS=10`, while the default remains 65 seconds for installations with tighter history rate limits. Slack Retry-After is honored. Polling, generation and approval handling now run independently; review-channel lookups are cached. Timing columns record model duration and receive-to-card duration without recording extra message content.
+The configured text model receives the redacted incoming question, allowed work
+evidence, and that recipient's style. Factual questions use the existing RAG reply
+engine, including Git/Codex facts and precise technical questions. Missing evidence
+and requests for decisions or commitments persist in **Needs attention** without
+sending an answer to the colleague. Mark handled records owner resolution only.
 
-To send approved replies as the owner in the original DM, add **chat:write to User Token Scopes**, reauthorize through the app's `/slack/install` flow, then set `VIRTUAL_YOU_DM_SEND_AS=user` and restart. Each draft snapshots its sending identity; older cards remain bot-authored. User-mode sends verify the owner/workspace and required scope, use the saved original DM, and fail closed rather than falling back to bot delivery. User events containing the owner's own messages never generate replies or post bot onboarding prompts into human conversations.
+Approval cards appear privately in the owner's bot DM. **Approve & send as me**
+uses the owner's authorized user token and original human DM. User `chat:write`
+is required; there is no bot fallback. Pause, changed evidence/access, wrong owner
+identity, or missing scope block sending. Uncertain sends are not automatically
+replayed. Three existing preparation workers remain available for unrelated DMs.
 
-### All personal DMs
+Voice attachments require bot `files:read`: update the app manifest and reconnect
+once through `/slack/install`. Enable Voice in Setup, allow a project for the
+recipient, and review their style. Attach an owner audio file to the bot DM, or
+use **Record memo** to open `/review#voice` on the same OAuth server. Recording can
+start locally; transcription requires the backend access key. This key is separate
+from Slack and speech-provider tokens and stays in the tab's memory.
 
-Set `VIRTUAL_YOU_DM_WATCH_RECIPIENT='*'` to route every incoming human one-to-one DM by sender. Existing personas and their reviewed styles are preserved. New senders are verified with the owner's Slack token, registered separately, and queued for persona creation from the owner's historical messages. Before a profile is ready/reviewed (including fewer than ten usable examples), reply cards explicitly show a neutral fallback. No other person's style or examples are used. A failed or unreviewed profile does not prevent a neutral approval-only reply. Use Refresh style after more examples become available, then review it in Home.
+Review/correct the transcript, select an allowed project and recipient, then review
+the pending draft. Confirming a transcript does not approve delivery. New voice
+reports are sent as the owner in the selected person's human DM after approval.
+Voice transcription/confirmation has a separate worker lane from approvals.
 
-User `message.im` events are the primary input. The listener discovers accessible DMs every minute and polls one conversation per configured interval as bounded recovery. Recovery latency therefore grows with inbox size; keep user event subscriptions enabled. Old history from before inbox activation is excluded. Event/poll duplicates share message IDs. The current scope excludes group DMs, public/private channels, bot messages and the owner's own messages. All replies still require approval and retain the sender identity shown on the card. Set `VIRTUAL_YOU_DM_SEND_AS=user` after the owner has granted user `chat:write` for replies in the original DM.
+`app_oauth.py` now serves Slack callbacks, GitHub authorization, and the authenticated
+review/API routes in one process on `PORT` (default 3000). Do not start a second
+backend against the same data directory. Socket Mode remains available; its
+headless entry point does not host the browser companion.
 
-macOS `scripts/macos_service.py install --mode oauth` starts the backend at login and restarts it after failure. The ngrok tunnel also needs a running supervisor, and the Mac must remain awake and online. These local services do not provide availability while the machine is asleep, logged out, or powered off; use an always-on server for that requirement.
-
-**Personal-DM delivery update:** Conversational replies now always use the owner's user token and original DM. Bot delivery is no longer an option for these replies, regardless of an old `VIRTUAL_YOU_DM_SEND_AS` value. Already-posted legacy bot approval cards are blocked from sending; reject them and use a fresh draft. Unnotified drafts are upgraded before their approval card is posted. The bot remains the private review interface. Missing user `chat:write` permission causes an error, never fallback delivery as the bot. Work-report delivery is a separate feature.
+See [Member 4 integration](../MEMBER4.md) for dependencies, boundaries and tests.

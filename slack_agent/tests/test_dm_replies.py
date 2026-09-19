@@ -4,19 +4,26 @@ from types import SimpleNamespace
 
 import pytest
 from virtual_you.backend.store import Store
+
 from virtualyou_workflow.dm_replies import DMReplies, register_dm_actions
+
+
+def supported_reply(kwargs):
+    data = json.loads(kwargs['user'])
+    e = next(item for item in data['evidence'] if item['field'] == 'end_state')
+    return {'paragraphs': [{'text': e['text'], 'citations': [{'evidence_id': e['evidence_id']}]}], 'search_query': ''}
 
 
 def make_monitor(tmp_path):
     store = Store(tmp_path / 'db.sqlite')
-    person = {'name':'Colleague','human_channel':'DHUMAN','reviewed_version':1}
+    person = {'name':'Colleague','human_channel':'DHUMAN','reviewed_version':1,'projects':['A']}
     store.get_persona = lambda key: {'version':1, 'style':{'tone':'friendly'}}
     calls = []
     class Slack:
         def auth_test(self): return {'user_id':'UOWNER','team_id':'TTEAM'}
         def conversations_history(self, **kwargs):
             return {'messages':[
-                {'user':'UFRIEND','ts':'2000000000.1','text':'Can we talk? password=private123'},
+                {'user':'UFRIEND','ts':'2000000000.1','text':'What is the current status? password=private123'},
                 {'user':'UOWNER','ts':'2000000000.2','text':'owner message'},
                 {'user':'UOTHER','ts':'2000000000.3','text':'unselected person'},
                 {'user':'UFRIEND','ts':'2000000000.4','text':'bot','bot_id':'B1'},
@@ -29,12 +36,17 @@ def make_monitor(tmp_path):
     class Provider:
         async def generate(self, **kwargs):
             assert 'private123' not in kwargs['user']
-            return {'paragraphs':[{'text':'Not recorded in the selected activity.', 'citations':[]}], 'search_query':''}
-    from virtual_you.backend.retrieval import RetrievalService
-    from virtual_you.backend.drafting import DraftEngine
+            return supported_reply(kwargs)
     from virtual_you.backend.config import Settings
+    from virtual_you.backend.drafting import DraftEngine
+    from virtual_you.backend.retrieval import RetrievalService
     from virtual_you.contracts.reporting import RetrievalRequest
     retrieval = RetrievalService(store)
+    from virtual_you.contracts.reporting import utcnow
+    now = utcnow()
+    retrieval.upsert({'session_id': 'routing-evidence', 'source': 'claude', 'redacted': True,
+                      'end_state': 'Validation completed.', 'timestamp_range': {'started_at': now, 'ended_at': now}})
+    retrieval.assign_project(['routing-evidence'], 'A')
     provider = Provider()
     slack = Slack()
     c = SimpleNamespace(
@@ -47,6 +59,9 @@ def make_monitor(tmp_path):
         scope=lambda person:RetrievalRequest(project_ids=person.get('projects', []),sources=['claude','cursor','codex']),
         policy_fingerprint=lambda person:json.dumps(person,sort_keys=True),
         preferences=lambda:{'paused':False}, profile_id=lambda r:r, bot=lambda:slack)
+    from virtual_you.backend.assistant import AssistantService
+    c.backend.assistant = AssistantService(Settings(), store, retrieval, SimpleNamespace(engine=c.backend.engine))
+    c.publish_home = lambda: None
     return DMReplies(c,'UFRIEND'), calls
 
 
@@ -95,7 +110,8 @@ def test_uncertain_delivery_not_replayed(tmp_path):
             calls.append(kwargs)
             raise TimeoutError()
         slack.chat_postMessage=failure
-        with pytest.raises(TimeoutError): await monitor.decide(reply_id, True)
+        with pytest.raises(TimeoutError):
+            await monitor.decide(reply_id, True)
         await monitor.decide(reply_id, True)
         assert monitor.get(reply_id)['state']=='delivery_unknown'
         assert len(calls)==2
@@ -103,7 +119,8 @@ def test_uncertain_delivery_not_replayed(tmp_path):
 
 
 def test_buttons_owner_only():
-    handlers={}; jobs=[]
+    handlers = {}
+    jobs = []
     app=SimpleNamespace(action=lambda name:lambda fn:handlers.update({name:fn}))
     c=SimpleNamespace(authorized=lambda body:body['user']=='owner',
         dm_replies=SimpleNamespace(get=lambda key:None),
@@ -155,7 +172,8 @@ def test_user_delivery_fails_closed_without_scope(tmp_path):
         with monitor.c.backend.store.connection() as db:
             reply_id=db.execute('select id from slack_dm_replies').fetchone()[0]
         from virtual_you.backend.errors import ServiceError
-        with pytest.raises(ServiceError): await monitor.decide(reply_id,True)
+        with pytest.raises(ServiceError):
+            await monitor.decide(reply_id, True)
         assert len(calls)==1 and monitor.get(reply_id)['state']=='pending'
     asyncio.run(run())
 
@@ -169,7 +187,8 @@ def test_legacy_bot_card_cannot_deliver(tmp_path):
             row=db.execute('select id from slack_dm_replies').fetchone()
             db.execute("update slack_dm_replies set send_as='bot' where id=?",(row[0],))
         from virtual_you.backend.errors import ServiceError
-        with pytest.raises(ServiceError) as error: await monitor.decide(row[0],True)
+        with pytest.raises(ServiceError) as error:
+            await monitor.decide(row[0], True)
         assert error.value.code=='outdated_bot_reply'
         assert len(calls)==1
     asyncio.run(run())
@@ -185,7 +204,9 @@ def test_user_send_uses_user_token_not_bot(tmp_path):
         user_calls=[]
         class UserClient:
             def auth_test(self): return {'user_id':'UOWNER','team_id':'TTEAM'}
-            def chat_postMessage(self,**kwargs): user_calls.append(kwargs);return {'ts':'3.0'}
+            def chat_postMessage(self, **kwargs):
+                user_calls.append(kwargs)
+                return {'ts': '3.0'}
         def factory(token,**kwargs):
             assert token=='token'
             return UserClient()
@@ -198,18 +219,23 @@ def test_user_send_uses_user_token_not_bot(tmp_path):
 
 def test_ingested_work_uses_correct_style_and_blocks_changed_evidence(tmp_path):
     from pathlib import Path
-    from virtual_you.ingest.service import IngestionService
+
     from virtual_you.backend.errors import ServiceError
+    from virtual_you.ingest.service import IngestionService
     monitor, calls = make_monitor(tmp_path)
     c=monitor.c
     source=Path(__file__).parents[2]/'tests/fixtures/claude_session.jsonl'
     record=IngestionService(data_directory=tmp_path/'raw-data',apply_git_overlay=False,latest_work_only=False).ingest_file('claude',source)
-    c.backend.retrieval.upsert(record.model_dump(mode='json'))
+    from virtual_you.contracts.reporting import utcnow
+    payload = record.model_dump(mode='json')
+    payload['timestamp_range'] = {'started_at': utcnow(), 'ended_at': utcnow()}
+    c.backend.retrieval.upsert(payload)
     c.backend.retrieval.assign_project([record.session_id],'virtualyou')
     c.state.recipient('UFRIEND')['projects']=['virtualyou']
     prompts=[]
     async def generate(**kwargs):
-        data=json.loads(kwargs['user']);prompts.append(data)
+        data = json.loads(kwargs['user'])
+        prompts.append(data)
         e=next(e for e in data['evidence'] if e['field']=='end_state')
         return {'paragraphs':[{'text':e['text'], 'citations':[{'evidence_id':e['evidence_id'],'quote':e['text']}]}]}
     c.backend.persona.provider.generate=generate
@@ -247,7 +273,7 @@ def test_unreviewed_sparse_profile_uses_formal_fallback(tmp_path):
     seen=[]
     async def generate(**kwargs):
         seen.append(json.loads(kwargs['user'])['style_only'])
-        return {'paragraphs':[{'text':'Not recorded in the selected activity.','citations':[]}]}
+        return supported_reply(kwargs)
     monitor.c.backend.persona.provider.generate=generate
     async def run():
         await monitor.poll()

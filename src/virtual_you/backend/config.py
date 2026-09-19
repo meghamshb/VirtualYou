@@ -26,6 +26,10 @@ class Settings:
     slack_channels: tuple[str, ...] = ()
     discord_webhook_url: str = ""
     request_timeout: float = 60
+    voice_model: str = "small"
+    voice_language: str | None = None
+    voice_provider: str = "local"
+    elevenlabs_api_key: str = ""
     ingestion_config: Path | None = None
 
     def prepare(self):
@@ -38,6 +42,8 @@ class Settings:
         self.activity_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.provider not in {"demo", "openai", "ollama"}:
             raise ValueError("VIRTUAL_YOU_LLM_PROVIDER must be demo, openai, or ollama")
+        if self.voice_provider not in {"local", "elevenlabs"}:
+            raise ValueError("VIRTUAL_YOU_VOICE_PROVIDER must be local or elevenlabs")
         if self.provider != "demo" and not self.model:
             raise ValueError("Set VIRTUAL_YOU_LLM_MODEL for the selected provider")
         if self.provider == "openai" and not self.openai_api_key:
@@ -112,5 +118,9 @@ class Settings:
                 if x.strip()
             ),
             discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
+            voice_model=os.getenv("VIRTUAL_YOU_VOICE_MODEL", "small"),
+            voice_language=os.getenv("VIRTUAL_YOU_VOICE_LANGUAGE") or None,
+            voice_provider=os.getenv("VIRTUAL_YOU_VOICE_PROVIDER", "local"),
+            elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", ""),
             request_timeout=float(os.getenv("VIRTUAL_YOU_REQUEST_TIMEOUT", "60")),
         )

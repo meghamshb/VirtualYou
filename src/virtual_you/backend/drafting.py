@@ -117,6 +117,8 @@ class DraftEngine:
             )
         if self.provider.name.startswith("demo:"):
             warnings.append("Offline demo uses extractive templates, not a language model.")
+        if any(item.source == "voice" for item in evidence):
+            warnings.append("Voice evidence is user-reported, not independently verified. Check names, numbers and negations.")
         return {
             "report": report.model_dump(),
             "text": text,
@@ -168,9 +170,11 @@ class DraftEngine:
         from virtual_you.backend.retrieval import query_terms
 
         query = question[:1000]
-        terms = query_terms(query)
+        # Secret placeholders are not topic keywords and must not hide otherwise useful evidence.
+        search_text = re.sub(r"(?:[\w.-]+\s*[:=]\s*)?\[REDACTED\]", "", query)
+        terms = query_terms(search_text)
         general_words = set(
-            "progress status update updates report reports recent today yesterday latest work working done changes changed since last week logs everything".split()
+            "progress status update updates report reports recent today yesterday latest work working done changes changed since last week logs everything current completed completion finished files file which explain show summarize".split()
         )
         search = " ".join(term for term in terms if term not in general_words)
         request = scope.model_copy(update={"query": search})

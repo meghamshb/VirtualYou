@@ -216,7 +216,7 @@ def test_reply_shortcut_requires_opt_in_and_matching_human_dm(setup):
         "user": {"id": "UOWNER"},
         "team": {"id": "TTEAM"},
         "channel": {"id": "DHUMAN"},
-        "message": {"user": "UFRIEND", "text": "What changed? password=private-value"},
+        "message": {"user": "UFRIEND", "text": "What changed? password=private-value", "ts": "2000000001.01"},
         "trigger_id": "one",
     }
     handler = app.handlers["vy_reply"]
@@ -231,6 +231,6 @@ def test_reply_shortcut_requires_opt_in_and_matching_human_dm(setup):
     body["channel"]["id"] = "DHUMAN"
     handler(lambda: None, body, client)
     job = c.state.claim()
-    assert job["kind"] == "draft" and job["payload"]["reply"] is True
-    assert "private-value" not in job["payload"]["question"]
+    assert job["kind"] == "question" and job["payload"]["request"]["destination"]["send_as"] == "user"
+    assert "private-value" not in job["payload"]["request"]["question"]
     assert not network

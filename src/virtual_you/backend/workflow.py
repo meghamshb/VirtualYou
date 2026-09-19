@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from virtual_you.backend.errors import ServiceError
 from virtual_you.backend.retrieval import canonical_hash
+from virtual_you.backend.slack_policy import guard_slack_policy
 from virtual_you.contracts.reporting import DraftRequest, utcnow
 from virtual_you.ingest.redact import assert_safe_serialized, redact_text
 
@@ -17,6 +18,15 @@ def approved_hash(draft):
 class Workflow:
     def __init__(self, store, engine, gateway):
         self.store, self.engine, self.gateway = store, engine, gateway
+        self.guards = []
+
+    def check_guards(self, draft):
+        self.engine.retrieval.validate_snapshot(
+            draft.get("evidence", []), DraftRequest.model_validate(draft["request"]).retrieval
+        )
+        guard_slack_policy(self.store, draft)
+        for guard in self.guards:
+            guard(draft)
 
     @staticmethod
     def check(draft, revision, allowed):
@@ -36,6 +46,26 @@ class Workflow:
     async def create(self, request: DraftRequest, *, draft_id=None):
         self.gateway.validate_destination(request.destination.model_dump())
         generated = await self.engine.generate(request)
+        return self.save_generated(request, generated, draft_id=draft_id)
+
+    async def create_reply(self, request, result, *, draft_id, persona_version):
+        self.gateway.validate_destination(request.destination.model_dump())
+        return self.save_generated(
+            request,
+            {
+                **result,
+                "kind": "reply",
+                "report": {"paragraphs": result["paragraphs"]},
+                "persona_version": persona_version,
+                "provider": self.engine.provider.name,
+                "latest_activity_at": max(
+                    (e["ended_at"] for e in result["evidence"]), default=utcnow()
+                ),
+            },
+            draft_id=draft_id,
+        )
+
+    def save_generated(self, request, generated, *, draft_id=None):
         request_data = request.model_dump(mode="json")
         request_data["question"] = redact_text(request.question) if request.question else None
         request_data["retrieval"]["query"] = redact_text(request.retrieval.query)
@@ -53,7 +83,9 @@ class Workflow:
         }
         with self.store.connection(write=True) as db:
             if db.execute("SELECT 1 FROM drafts WHERE id=?", (draft["id"],)).fetchone():
-                raise ServiceError("draft_already_exists", "This draft request was already saved.", 409)
+                raise ServiceError(
+                    "draft_already_exists", "This draft request was already saved.", 409
+                )
             self.store.save_draft(db, draft, "created")
         return draft
 
@@ -87,7 +119,17 @@ class Workflow:
     async def regenerate(self, draft_id, request):
         original = self.store.get_draft(draft_id)
         self.check(original, request.expected_revision, {"pending", "approved", "delivery_failed"})
-        generated = await self.engine.generate(DraftRequest.model_validate(original["request"]))
+        parsed = DraftRequest.model_validate(original["request"])
+        if original.get("kind") == "reply":
+            profile = self.store.get_persona(parsed.recipient_id)
+            generated = await self.engine.reply(
+                question=parsed.question, scope=parsed.retrieval, style=profile["style"]
+            )
+            generated.update(
+                report={"paragraphs": generated["paragraphs"]}, persona_version=profile["version"]
+            )
+        else:
+            generated = await self.engine.generate(parsed)
         # Generation happens outside the transaction. Recheck after awaiting the model.
         with self.store.connection(write=True) as db:
             draft = self.store.load_draft(db, draft_id)
@@ -113,6 +155,7 @@ class Workflow:
             )
             self.check(draft, request.expected_revision, allowed)
             if request.action == "approve":
+                self.check_guards(draft)
                 self.gateway.validate_destination(draft["destination"])
                 draft["status"] = "approved"
                 draft["approval"] = {
@@ -142,6 +185,7 @@ class Workflow:
                     "Approval does not match the current content and destination.",
                     409,
                 )
+            self.check_guards(draft)
             self.gateway.validate_destination(draft["destination"])
             draft["status"] = "delivering"
             self.store.save_draft(db, draft, "delivery_started")

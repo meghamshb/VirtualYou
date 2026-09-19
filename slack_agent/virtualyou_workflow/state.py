@@ -76,10 +76,15 @@ class SlackState:
             )
         return job_id
 
-    def claim(self):
+    def claim(self, lane=None):
+        clause = ""
+        if lane == "voice":
+            clause = " AND kind IN ('voice_upload','voice_confirm')"
+        elif lane == "main":
+            clause = " AND kind NOT IN ('voice_upload','voice_confirm')"
         with self.store.connection(write=True) as db:
             row = db.execute(
-                "SELECT * FROM slack_jobs WHERE state='queued' AND available<=? ORDER BY created LIMIT 1",
+                "SELECT * FROM slack_jobs WHERE state='queued' AND available<=?" + clause + " ORDER BY created LIMIT 1",
                 (time.time(),),
             ).fetchone()
             if not row:

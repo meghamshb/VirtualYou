@@ -2,14 +2,15 @@
 import asyncio
 import hashlib
 import json
-import os
 import logging
+import os
 import time
 from decimal import Decimal
 
 from virtual_you.backend.errors import ServiceError
 from virtual_you.ingest.redact import redact_text
-from .history import slack_call, RetryLater
+
+from .history import RetryLater, slack_call
 from .views import plain
 
 
@@ -204,8 +205,16 @@ class DMReplies:
                 import re
                 if not re.search(r'\b(progress|status|update|report|recent|today|yesterday)\b', row['prompt'], re.I):
                     scope = scope.model_copy(update={'since': None})
-                result = await self.c.backend.engine.reply(
-                    question=row['prompt'], scope=scope, style=profile['style'])
+                outcome = await self.c.backend.assistant.prepare(
+                    row['id'], question=row['prompt'], scope=scope, style=profile['style'],
+                    recipient_id=self.c.profile_id(self.recipient),
+                    context={'recipient': self.recipient, 'dm_reply_id': row['id'], 'channel': row['channel'], 'policy': self.c.policy_fingerprint(person)})
+                if outcome['status'] != 'draft_ready':
+                    with self.c.backend.store.connection(write=True) as db:
+                        db.execute("UPDATE slack_dm_replies SET state='escalated' WHERE id=?", (row['id'],))
+                    await asyncio.to_thread(self.c.publish_home)
+                    return
+                result = outcome['reply']
                 row['reply'] = result['text']
                 row['grounding'] = json.dumps(result)
                 row['policy'] = self.c.policy_fingerprint(person)
@@ -247,17 +256,12 @@ class DMReplies:
                 raise ServiceError('audience_changed', 'Settings or style changed. Reject this draft and prepare a fresh reply.')
             self.c.backend.retrieval.validate_snapshot(
                 json.loads(row['grounding']).get('evidence', []), self.c.scope(person))
+            if self.c.backend.assistant.evidence_problem(row['prompt'], json.loads(row['grounding'])):
+                raise ServiceError('evidence_expired', 'Prepare a fresh reply; its supporting evidence is no longer current.')
         user_client = None
         if approve and row.get('send_as') == 'user':
-            installation = self.c.credentials.installation()
-            if not installation or 'chat:write' not in (installation.user_scopes or []):
-                raise ServiceError('user_write_required', 'Reconnect Slack with user chat:write permission before sending.')
-            if row['channel'] != self.c.state.recipient(self.recipient).get('human_channel'):
-                raise ServiceError('recipient_changed', 'The original DM has changed; reject this draft.')
-            user_client = self.c.client_factory(token=self.c.credentials.user_token(), timeout=15, retry_handlers=[])
-            identity = await asyncio.to_thread(slack_call, user_client.auth_test)
-            if identity.get('user_id') != self.c.config.owner_id or identity.get('team_id') != self.c.config.team_id or identity.get('bot_id'):
-                raise ServiceError('wrong_user_token', 'Reconnect the configured owner.')
+            from .user_delivery import verified_owner_client
+            user_client = await verified_owner_client(self.c, self.recipient, row['channel'])
         with self.c.backend.store.connection(write=True) as db:
             updated = db.execute("UPDATE slack_dm_replies SET state=? WHERE id=? AND state='pending'",
                 ('sending' if approve else 'rejected', reply_id)).rowcount

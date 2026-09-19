@@ -8,13 +8,14 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from virtual_you.backend.assistant import AssistantService
 from virtual_you.backend.config import Settings
 from virtual_you.backend.delivery import DeliveryGateway
 from virtual_you.backend.drafting import DraftEngine
@@ -24,7 +25,14 @@ from virtual_you.backend.persona import PersonaService
 from virtual_you.backend.providers import make_provider
 from virtual_you.backend.retrieval import RetrievalService
 from virtual_you.backend.store import Store
+from virtual_you.backend.voice import MAX_AUDIO_BYTES, VoiceService, make_transcriber
 from virtual_you.backend.workflow import Workflow
+from virtual_you.contracts.assistant import (
+    QuestionRequest,
+    ResolveEscalation,
+    VoiceConfirm,
+    VoiceEdit,
+)
 from virtual_you.contracts.reporting import (
     ApprovalDecision,
     DraftRequest,
@@ -53,9 +61,15 @@ class BodyLimit:
             chunk = message.get("body", b"")
             chunks.append(chunk)
             size += len(chunk)
-            if size > 1_000_000:
+            limit = MAX_AUDIO_BYTES if scope.get("path") == "/api/voice" else 1_000_000
+            if size > limit:
                 response = JSONResponse(
-                    {"error": {"code": "request_too_large", "message": "Request exceeds 1 MB."}},
+                    {
+                        "error": {
+                            "code": "request_too_large",
+                            "message": "Request exceeds the upload size limit.",
+                        }
+                    },
                     status_code=413,
                 )
                 return await response(scope, receive, send)
@@ -73,7 +87,7 @@ class BodyLimit:
         await self.app(scope, replay, send)
 
 
-def create_app(settings=None, *, provider=None, transport=None):
+def create_app(settings=None, *, provider=None, transport=None, transcriber=None):
     settings = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -100,6 +114,17 @@ def create_app(settings=None, *, provider=None, transport=None):
                 app.state.retrieval, app.state.engine = retrieval, engine
                 app.state.persona = PersonaService(settings, store, model)
                 app.state.workflow = Workflow(store, engine, DeliveryGateway(settings, client))
+                app.state.assistant = AssistantService(
+                    settings, store, retrieval, app.state.workflow
+                )
+                app.state.workflow.guards.append(app.state.assistant.guard)
+                app.state.voice = VoiceService(
+                    settings,
+                    store,
+                    retrieval,
+                    app.state.workflow,
+                    transcriber or make_transcriber(settings),
+                )
                 app.state.heartbeat = heartbeat
                 await heartbeat.refresh()
 
@@ -174,9 +199,9 @@ def create_app(settings=None, *, provider=None, transport=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
-        if request.url.path == "/" or request.url.path.startswith("/static/"):
+        if request.url.path in {"/", "/review"} or request.url.path.startswith("/static/"):
             response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+                "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
             )
         return response
 
@@ -193,6 +218,7 @@ def create_app(settings=None, *, provider=None, transport=None):
     static = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static), name="static")
 
+    @app.get("/review", include_in_schema=False)
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(static / "index.html")
@@ -206,6 +232,13 @@ def create_app(settings=None, *, provider=None, transport=None):
             "delivery_mode": "live" if settings.live_delivery else "simulation",
             "heartbeat": app.state.store.metadata("heartbeat"),
             "activity": app.state.retrieval.stats(),
+            "projects": app.state.retrieval.project_choices(),
+            "voice": {
+                "provider": settings.voice_provider,
+                "max_seconds": 180,
+                "max_bytes": MAX_AUDIO_BYTES,
+                "uploads_audio_to_provider": settings.voice_provider == "elevenlabs",
+            },
             "destinations": {
                 "slack": list(settings.slack_channels),
                 "discord": ["default"] if settings.discord_webhook_url else [],
@@ -276,6 +309,45 @@ def create_app(settings=None, *, provider=None, transport=None):
     @api.post("/drafts/{draft_id}/reconcile")
     def reconcile(draft_id: str, request: ReconcileDelivery):
         return app.state.workflow.reconcile(draft_id, request)
+
+    @api.post("/assistant/questions")
+    async def ask_question(request: QuestionRequest):
+        return await app.state.assistant.ask(request)
+
+    @api.get("/assistant/requests")
+    def questions():
+        return app.state.assistant.list_requests()
+
+    @api.post("/assistant/requests/{request_id}/resolve")
+    def resolve_question(request_id: str, request: ResolveEscalation):
+        return app.state.assistant.resolve(request_id, request.note)
+
+    @api.post("/voice", status_code=201)
+    async def upload_voice(
+        request: Request,
+        request_id: str = Query(min_length=1, max_length=160, pattern=r"^[\w.:-]+$"),
+    ):
+        return await app.state.voice.upload(await request.body(), request_id)
+
+    @api.get("/voice")
+    def voice_notes():
+        return app.state.voice.list_notes()
+
+    @api.get("/voice/targets")
+    def voice_targets():
+        return getattr(app.state, "voice_targets", lambda: [])()
+
+    @api.get("/voice/{note_id}")
+    def voice_note(note_id: str):
+        return app.state.voice.get(note_id)
+
+    @api.post("/voice/{note_id}/edit")
+    def edit_voice(note_id: str, request: VoiceEdit):
+        return app.state.voice.edit(note_id, request)
+
+    @api.post("/voice/{note_id}/confirm")
+    async def confirm_voice(note_id: str, request: VoiceConfirm):
+        return await app.state.voice.confirm(note_id, request)
 
     app.include_router(api)
     return app

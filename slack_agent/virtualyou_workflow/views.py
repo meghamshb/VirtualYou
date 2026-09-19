@@ -161,7 +161,8 @@ def draft_blocks(draft, recipient, live):
     blocks = [
         section(f"Update for {recipient} · revision {draft['revision']} · {status}"),
         section(
-            "Delivered as the VirtualYou bot after your approval."
+            ("Sent as you in this person's personal DM after your approval."
+             if draft["destination"].get("send_as") == "user" else "Delivered as the VirtualYou bot after your approval.")
             if live
             else "Preview mode: approval simulates delivery; no message goes to this person."
         ),
@@ -178,7 +179,7 @@ def draft_blocks(draft, recipient, live):
     actions = []
     if status == "pending":
         actions.append(
-            button("Approve & send" if live else "Approve preview", "vy_approve", value, "primary")
+            button(("Approve & send as me" if draft["destination"].get("send_as") == "user" else "Approve & send") if live else "Approve preview", "vy_approve", value, "primary")
         )
     if status in {"pending", "approved", "delivery_failed"}:
         actions += [

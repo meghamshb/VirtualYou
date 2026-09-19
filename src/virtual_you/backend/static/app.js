@@ -1,6 +1,9 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-let apiKey = "", selected = null, busy = false;
+let apiKey = "", selected = null, busy = false, connected = false;
+let voiceTargets = [];
+let voiceNote = null, uploadId = null, cloudVoice = false, questionRequest = null;
+const recorder = new VoiceMemoRecorder(() => buttons());
 function notice(text) { $("notice").textContent = text; }
 function githubStatus(github) {
   $("github-status").textContent = github.connected
@@ -29,6 +32,12 @@ function buttons() {
   $("draft-text").disabled = busy;
   $("draft-text").readOnly = !editable;
   $("unsaved").textContent = dirty() ? "Unsaved edits. Save them before approving or delivering." : "";
+  recorder.setLocked(busy, connected);
+  $("voice-file").disabled = busy || recorder.active;
+  $("voice-upload").querySelector("button").disabled = busy || recorder.active;
+  $("voice-upload").querySelector("button").textContent = connected ? "Transcribe recording" : "Connect to transcribe";
+  $("voice-connection").hidden = connected;
+  for (const element of $("voice-connect").querySelectorAll("input, button")) element.disabled = busy;
 }
 async function run(action) {
   if (busy) return;
@@ -39,13 +48,57 @@ async function run(action) {
 async function load() {
   const github = await fetch("/github/status").then(r => r.json()).catch(() => ({connected:false}));
   githubStatus(github);
-  const [status, personas, drafts] = await Promise.all([api("/status"), api("/personas"), api("/drafts")]);
+  voiceTargets = await api("/voice/targets");
+  const [status, personas, drafts, notes, questions] = await Promise.all([api("/status"), api("/personas"), api("/drafts"), api("/voice"), api("/assistant/requests")]);
   $("status").textContent = JSON.stringify(status, null, 2);
   $("personas").textContent = personas.map(p => `${p.display_name} (${p.recipient_id}) · version ${p.version} · ${p.style.formality}`).join("\n") || "No personas yet.";
   const previous = $("draft-recipient").value;
   $("draft-recipient").replaceChildren();
   personas.forEach(p => { const o = document.createElement("option"); o.value = p.recipient_id; o.textContent = p.display_name; $("draft-recipient").append(o); });
   if (personas.some(p => p.recipient_id === previous)) $("draft-recipient").value = previous;
+  for (const id of ["voice-recipient", "question-recipient"]) {
+    const old = $(id).value;
+    $(id).replaceChildren();
+    const choices = voiceTargets.length ? voiceTargets : personas.map(p => ({...p, name: p.display_name}));
+    choices.forEach(p => { const o = document.createElement("option"); o.value = p.recipient_id; o.textContent = p.name; $(id).append(o); });
+    if (personas.some(p => p.recipient_id === old)) $(id).value = old;
+  }
+  syncVoiceTarget(status.projects);
+  syncQuestionTarget();
+  cloudVoice = status.voice.uploads_audio_to_provider;
+  $("voice-processing").textContent = cloudVoice
+    ? "ElevenLabs transcription: uploading a memo sends its original audio to ElevenLabs. The returned text is redacted before storage and draft generation."
+    : "Local transcription: audio is processed on the backend machine. The model may download on first use. Recordings are not retained by this app.";
+  $("voice-notes").replaceChildren();
+  notes.forEach(note => {
+    const b = document.createElement("button"); b.type = "button";
+    b.textContent = `Memo · ${note.status} · ${note.created_at}`;
+    b.onclick = () => run(async () => {
+      if (dirty() && !confirm("Discard unsaved draft edits?")) return;
+      if (note.draft_id && note.status === "draft_ready") await show(await api(`/drafts/${note.draft_id}`));
+      else openVoice(await api(`/voice/${note.id}`));
+      notice("Memo loaded.");
+    });
+    $("voice-notes").append(b);
+  });
+  $("question-results").replaceChildren();
+  questions.forEach(item => {
+    const article = document.createElement("article"), text = document.createElement("p");
+    const detail = item.status === "resolved" ? item.resolution : item.answer;
+    text.textContent = `${item.question} — ${item.status}${item.reason ? ` (${item.reason})` : ""}. ${detail || ""}`;
+    article.append(text);
+    if (item.status === "draft_ready" && !item.context?.dm_reply_id && item.draft_id) {
+      const b = document.createElement("button"); b.textContent = "Review answer draft";
+      b.onclick = () => run(async () => { if (dirty() && !confirm("Discard unsaved draft edits?")) return; await show(await api(`/drafts/${item.draft_id}`)); notice("Review the answer before approval."); });
+      article.append(b);
+    }
+    if (item.status === "escalated") {
+      const b = document.createElement("button"); b.textContent = "Mark handled";
+      b.onclick = () => run(async () => { await api(`/assistant/requests/${encodeURIComponent(item.id)}/resolve`, {note: "Handled by owner in review page; no automatic reply."}); await load(); notice("Escalation marked handled. No reply sent."); });
+      article.append(b);
+    }
+    $("question-results").append(article);
+  });
   $("drafts").replaceChildren();
   drafts.forEach(d => {
     const b = document.createElement("button");
@@ -67,9 +120,14 @@ async function show(draft) {
   $("audit").textContent = JSON.stringify({ receipt: draft.receipt, events: await api(`/drafts/${draft.id}/audit`) }, null, 2);
   buttons();
 }
-$("login").onsubmit = e => { e.preventDefault(); run(async () => {
-  apiKey = $("key").value.trim(); await load(); $("key").value = ""; notice("Connected. Check delivery mode before reviewing a draft.");
-}); };
+async function connect(key) {
+  connected = false;
+  apiKey = key.trim(); await load(); connected = true;
+  $("key").value = ""; $("voice-key").value = ""; $("voice-connect").hidden = true;
+  if (recorder.supported && !recorder.active && !recorder.clip) recorder.message("Ready. Press Record and allow microphone access, or upload a file below.");
+  notice("Connected. Check delivery mode before reviewing a draft.");
+}
+$("login").onsubmit = e => { e.preventDefault(); run(() => connect($("key").value)); };
 $("logout").onclick = () => location.reload();
 $("refresh").onclick = () => run(async () => { await api("/refresh", {}); await load(); notice("Evidence refreshed. Existing draft text has not changed."); });
 $("reload").onclick = () => run(async () => { await load(); notice("Reloaded."); });
@@ -98,5 +156,131 @@ $("regenerate").onclick = () => run(() => act("regenerate"));
 $("approve").onclick = () => run(() => act("decision", {action: "approve"}));
 $("reject").onclick = () => run(() => act("decision", {action: "reject"}));
 $("deliver").onclick = () => run(() => act("deliver"));
+function openVoice(note) {
+  voiceNote = note;
+  $("voice-review").hidden = false;
+  $("voice-transcript").value = note.transcript;
+  $("voice-warning").textContent = note.warning;
+  const confirmed = note.status === "confirmed";
+  for (const id of ["voice-transcript", "voice-recipient", "voice-project", "voice-target"]) $(id).disabled = confirmed;
+  $("voice-review").querySelector("button").textContent = confirmed ? "Retry pending draft" : "Create pending draft";
+  if (confirmed) {
+    $("voice-recipient").value = note.confirmed_request.recipient_id;
+    syncVoiceTarget([note.confirmed_request.project]);
+    $("voice-project").value = note.confirmed_request.project;
+    $("voice-target").value = note.confirmed_request.destination.target;
+    $("voice-warning").textContent += " Transcript confirmed. Retry generation with these saved details.";
+  }
+}
+$("voice-file").onchange = () => { uploadId = null; };
+function requireVoiceConnection() {
+  if (connected) return true;
+  $("voice-connect").hidden = false;
+  $("voice-connect-status").textContent = "Enter your backend access key to connect. Your audio stays available while you connect.";
+  recorder.message("Connect below, then press Transcribe. Your audio stays available.");
+  $("voice-key").focus();
+  $("voice-connect").scrollIntoView({behavior: "smooth", block: "center"});
+  return false;
+}
+$("voice-connect").onsubmit = e => { e.preventDefault(); run(async () => {
+  $("voice-connect-status").textContent = "Connecting…";
+  try {
+    await connect($("voice-key").value);
+    const message = "Connected. Check the transcription provider above, then press Transcribe when ready.";
+    recorder.message(message); notice(message);
+  } catch (error) { $("voice-connect-status").textContent = error.message; throw error; }
+}); };
+$("voice-connect-cancel").onclick = () => { $("voice-connect").hidden = true; $("voice-key").value = ""; recorder.message("Connection cancelled. Your audio is still available."); };
+async function transcribeAudio(file, requestId) {
+  if (!connected) throw new Error("Connect to the backend first.");
+  if (!file || !file.size || file.size > 8 * 1024 * 1024) throw new Error("Choose a non-empty audio file up to 8 MiB.");
+  recorder.el("voice-playback").pause();
+  const progress = cloudVoice ? "Transcribing with ElevenLabs…" : "Transcribing locally… the first run may download model weights.";
+  recorder.message(progress); notice(progress);
+  try {
+    const response = await fetch(`/api/voice?request_id=${requestId}`, {
+      method: "POST", headers: {Authorization: "Bearer " + apiKey, "Content-Type": file.type || "application/octet-stream"}, body: file
+    });
+    if (response.status === 401) { connected = false; requireVoiceConnection(); throw new Error("Your backend connection expired. Connect again below, then retry transcription."); }
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error?.message || "Transcription failed.");
+    await load();
+    if (result.status === "draft_ready") {
+      if (dirty() && !confirm("Discard unsaved draft edits and reopen this memo's draft?")) {
+        recorder.message("This memo already has a draft. Your current draft edits were kept.");
+        notice("Current draft edits kept.");
+        return;
+      }
+      $("voice-review").hidden = true;
+      await show(await api(`/drafts/${result.draft_id}`));
+      recorder.message("This memo already has a draft. Open Review selected draft below.");
+      notice("Existing voice draft loaded. Nothing sent.");
+      return;
+    }
+    openVoice(result);
+    const ready = "Transcript ready. Check names, numbers, and negations before confirming.";
+    recorder.message(ready); notice(ready);
+    $("voice-review").scrollIntoView({behavior: "smooth", block: "start"});
+  } catch (error) { recorder.message(error.message + " Your audio is still available to retry."); throw error; }
+}
+$("voice-upload").onsubmit = e => { e.preventDefault();
+  if (recorder.active || !requireVoiceConnection()) return;
+  run(() => { uploadId ||= crypto.randomUUID(); return transcribeAudio($("voice-file").files[0], uploadId); });
+};
+$("voice-transcribe").onclick = () => {
+  if (!recorder.clip || recorder.active || !requireVoiceConnection()) return;
+  const {blob, requestId} = recorder.clip;
+  run(() => transcribeAudio(blob, requestId));
+};
+$("voice-review").onsubmit = e => { e.preventDefault(); run(async () => {
+  if (!voiceNote) return;
+  if (dirty() && !confirm("Discard unsaved draft edits?")) return;
+  const payload = voiceNote.confirmed_request || {
+    expected_revision: voiceNote.revision, transcript: $("voice-transcript").value,
+    recipient_id: $("voice-recipient").value, project: $("voice-project").value,
+    destination: voiceTargets.find(t => t.recipient_id === $("voice-recipient").value)?.destination || {platform: "slack", target: $("voice-target").value}
+  };
+  let result;
+  try { result = await api(`/voice/${voiceNote.id}/confirm`, payload); }
+  catch (error) { openVoice(await api(`/voice/${voiceNote.id}`)); throw error; }
+  voiceNote = result; $("voice-review").hidden = true;
+  await load(); await show(await api(`/drafts/${result.draft_id}`)); notice("Voice draft is pending. Nothing has been sent.");
+}); };
+$("question-form").onsubmit = e => { e.preventDefault(); run(async () => {
+  if (dirty() && !confirm("Discard unsaved draft edits?")) return;
+  const project = $("question-project").value.trim();
+  const payload = {
+    question: $("question-text").value,
+    recipient_id: $("question-recipient").value,
+    retrieval: {project_ids: project ? [project] : null},
+    destination: voiceTargets.find(t => t.recipient_id === $("question-recipient").value)?.destination || {platform: "slack", target: $("question-target").value}
+  };
+  const fingerprint = JSON.stringify(payload);
+  if (questionRequest?.fingerprint !== fingerprint) questionRequest = {fingerprint, id: crypto.randomUUID()};
+  const result = await api("/assistant/questions", {...payload, request_id: questionRequest.id});
+  questionRequest = null;
+  await load();
+  if (result.status === "draft_ready" && result.draft_id) await show(await api(`/drafts/${result.draft_id}`));
+  notice(result.status === "escalated" ? "Needs your attention: " + result.reason : "Answer draft awaits your review. Nothing sent.");
+}); };
 buttons();
+
 fetch("/github/status").then(r => r.json()).then(githubStatus).catch(() => githubStatus({connected:false}));
+
+function syncVoiceTarget(projects) {
+  const target = voiceTargets.find(t => t.recipient_id === $("voice-recipient").value);
+  const previous = $("voice-project").value;
+  const choices = target?.projects || projects || [...$("voice-project").options].map(o => o.value);
+  $("voice-project").replaceChildren();
+  choices.forEach(p => { const o = document.createElement("option"); o.value = p; o.textContent = p; $("voice-project").append(o); });
+  if (choices.includes(previous)) $("voice-project").value = previous;
+  $("voice-target").readOnly = !!target;
+  if (target) $("voice-target").value = target.destination.target;
+}
+function syncQuestionTarget() {
+  const target = voiceTargets.find(t => t.recipient_id === $("question-recipient").value);
+  $("question-target").readOnly = !!target;
+  if (target) $("question-target").value = target.destination.target;
+}
+$("voice-recipient").onchange = () => syncVoiceTarget();
+$("question-recipient").onchange = syncQuestionTarget;

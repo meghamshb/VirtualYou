@@ -41,28 +41,9 @@ class Experience:
             )
 
     def require_current_policy(self, draft_id):
-        link = self.state.draft_link(draft_id)
-        value = self.state.recipient(link["recipient"])
-        self.require_ready(value)
-        saved = self.backend.store.metadata("slack_draft_policy:" + draft_id)
-        if saved != self.policy_fingerprint(value):
-            raise ServiceError(
-                "audience_changed",
-                "Settings or style changed. Reject this draft and prepare a fresh one.",
-            )
-        # A session can be reassigned after drafting. Check the current project mapping too.
-        draft = self.backend.store.get_draft(draft_id)
-        session_ids = {e["session_id"] for e in draft.get("evidence", [])}
-        with self.backend.store.connection() as db:
-            for session_id in session_ids:
-                row = db.execute(
-                    "SELECT project_id FROM activity_projects WHERE session_id=?", (session_id,)
-                ).fetchone()
-                if not row or row[0] not in value.get("projects", []):
-                    raise ServiceError(
-                        "audience_changed",
-                        "Evidence was moved to another project. Reject this draft and create a fresh one.",
-                    )
+        from virtual_you.backend.slack_policy import guard_slack_policy
+        self.state.draft_link(draft_id)
+        guard_slack_policy(self.backend.store, self.backend.store.get_draft(draft_id))
 
     def status_summary(self):
         heartbeat = self.backend.store.metadata("heartbeat") or {}

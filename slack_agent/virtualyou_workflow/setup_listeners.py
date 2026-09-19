@@ -166,17 +166,10 @@ def register_setup(app, coordinator, event_key):
                 raise ServiceError(
                     "unsupported_message", "Choose a text message written by this colleague."
                 )
-            if coordinator.state.open_draft(value["recipient"]):
-                raise ServiceError(
-                    "draft_pending", "Review or reject the existing draft for this person first."
-                )
             question = redact_text(message["text"])[:1000]
-            coordinator.state.enqueue(
-                "draft",
-                {"recipient": value["recipient"], "question": question, "reply": True},
-                event_key(body, "reply"),
-            )
-            explanation = "Your update is being prepared using only this person's allowed projects. Review it in VirtualYou Home or your bot DM. It will be delivered by the bot after approval."
+            coordinator.queue_question(value["recipient"], question,
+                body["channel"]["id"] + ":" + message["ts"])
+            explanation = "Review the reply or escalation in VirtualYou. Approved replies are sent as you in this person's personal DM."
         except (KeyError, ServiceError) as error:
             explanation = (
                 error.message

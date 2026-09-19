@@ -82,6 +82,7 @@ class RetrievalRequest(Contract):
 class Destination(Contract):
     platform: Literal["slack", "discord"] = "slack"
     target: str = Field(min_length=1, max_length=120)
+    send_as: Literal["bot", "user"] = "bot"
     thread_ts: Optional[str] = Field(default=None, pattern=r"^\d+\.\d+$")
 
 

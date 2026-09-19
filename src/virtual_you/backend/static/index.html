@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Virtual You — Review</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Virtual You — Review</title><link rel="stylesheet" href="/static/style.css"><script src="/static/recorder.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <main>
   <h1>Virtual You</h1>
@@ -35,6 +35,59 @@
     </form>
   </section>
   <section><h2>Drafts</h2><button id="reload" type="button">Reload</button><div id="drafts"></div></section>
+  <section id="voice"><h2>Voice memo → draft</h2>
+    <p id="voice-processing">Connect to see where transcription runs.</p>
+    <div id="voice-recorder" class="recorder" role="group" aria-label="Record a voice memo">
+      <div class="recorder-heading"><strong>Record a memo</strong><span id="voice-timer" role="timer" aria-label="Recording duration">0:00</span></div>
+      <p id="voice-status" role="status">Ready. Press Record and allow microphone access.</p>
+      <div id="voice-meter-box" hidden>
+        <label for="voice-level">Microphone input</label>
+        <meter id="voice-level" min="0" max="100" low="15" high="90" optimum="60" value="0" aria-label="Microphone input level"></meter>
+        <p id="voice-signal" role="status">Listening for sound…</p>
+      </div>
+      <button id="voice-start" type="button" disabled>Record</button>
+      <button id="voice-stop" type="button" hidden>Stop recording</button>
+      <button id="voice-discard" type="button" hidden>Discard recording</button>
+      <div id="voice-preview" hidden>
+        <audio id="voice-playback" controls preload="metadata" aria-label="Preview your voice memo"></audio>
+        <button id="voice-transcribe" type="button" disabled>Transcribe this memo</button>
+      </div>
+      <small>Microphone audio stays in this tab until you choose Transcribe. Recording stops just before 3 minutes, or when you leave this tab.</small>
+    </div>
+    <p id="voice-connection"><a href="#login">Connect to the backend</a> to enable transcription. You can record, preview, or choose a file first.</p>
+    <form id="voice-connect" class="voice-connect" hidden>
+      <strong>Connect to transcribe</strong>
+      <p>Your recording stays in this tab while you connect.</p>
+      <label>Backend access key<input id="voice-key" type="password" autocomplete="off" required></label>
+      <small>Use the key from <code>virtual-you-server show-key</code>, not your ElevenLabs key.</small>
+      <button>Connect</button><button id="voice-connect-cancel" type="button">Cancel</button>
+      <p id="voice-connect-status" role="status"></p>
+    </form>
+    <form id="voice-upload"><label>Or upload an audio file (up to 3 minutes / 8 MiB)
+      <input id="voice-file" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav,.webm" required></label>
+      <button>Transcribe recording</button></form>
+    <div id="voice-notes"></div>
+    <form id="voice-review" hidden>
+      <p id="voice-warning"></p>
+      <label>Review and correct the transcript<textarea id="voice-transcript" rows="6" maxlength="12000" required></textarea></label>
+      <label>Recipient<select id="voice-recipient" required></select></label>
+      <label>Project<select id="voice-project" required></select></label>
+      <label>Personal DM destination<input id="voice-target" value="demo-channel" required></label>
+      <button>Create pending draft</button>
+      <small>This confirms the transcript as a user-reported memo. Review the generated draft separately before sending.</small>
+    </form>
+  </section>
+  <section><h2>Work questions</h2>
+    <p>Ask about completed work, changes, blockers, or current status. Decisions and missing information are escalated for your attention.</p>
+    <form id="question-form">
+      <label>Question<input id="question-text" placeholder="What is the current status?" maxlength="1000" required></label>
+      <label>Recipient<select id="question-recipient" required></select></label>
+      <label>Project (blank = this recipient’s allowed projects when Slack is connected)<input id="question-project" maxlength="80"></label>
+      <label>Slack destination<input id="question-target" value="demo-channel" required></label>
+      <button>Prepare answer for review</button>
+    </form>
+    <div id="question-results" aria-live="polite"></div>
+  </section>
   <section id="review" hidden><h2>Review selected draft</h2>
     <p id="draft-meta"></p><pre id="warnings"></pre>
     <label>Message <textarea id="draft-text" rows="16" maxlength="12000"></textarea></label>

@@ -22,11 +22,13 @@ from virtual_you.ingest.redact import redact_text
 
 from .experience import Experience
 from .history import HistoryCollector, RetryLater, slack_call
+from .member4 import Member4
 from .state import SlackState
+from .user_delivery import OwnerDMSender
 from .views import draft_blocks, home_view
 
 
-class Coordinator(Experience):
+class Coordinator(Member4, Experience):
     def __init__(self, backend, config, credentials, *, client_factory=WebClient):
         self.backend, self.config, self.credentials = backend, config, credentials
         self.state = SlackState(backend.store)
@@ -40,6 +42,10 @@ class Coordinator(Experience):
             )
         backend.store.set_metadata("slack_identity", identity)
         self.restore_destinations()
+        backend.workflow.gateway.user_sender = OwnerDMSender(self)
+        backend.voice.validate_confirmation = self.bind_voice_confirmation
+        backend.voice.check_upload = self.require_voice_enabled
+        backend.voice_targets = self.voice_targets
         self.dm_replies = None
         watched = os.getenv("VIRTUAL_YOU_DM_WATCH_RECIPIENT", "")
         if watched == '*':
@@ -121,7 +127,7 @@ class Coordinator(Experience):
             link = self.state.draft_link(draft["id"])
             person = self.state.recipient(link["recipient"])
             drafts.append((draft, person.get("name", person["recipient"])))
-        return home_view(
+        view = home_view(
             self.state.recipients(),
             drafts,
             connected=self.credentials.connected(),
@@ -130,6 +136,9 @@ class Coordinator(Experience):
             status=self.status_summary(),
             error=self.state.latest_error(),
         )
+        extra = self.member4_blocks()
+        view["blocks"] = view["blocks"][:100 - len(extra)] + extra
+        return view
 
     def publish_home(self):
         slack_call(self.bot().views_publish, user_id=self.config.owner_id, view=self.home())
@@ -312,8 +321,8 @@ class Coordinator(Experience):
         self.state.progress(job, {**data, "applied": True})
         await asyncio.to_thread(self.notify, draft)
 
-    async def process_once(self):
-        job = self.state.claim()
+    async def process_once(self, lane=None):
+        job = self.state.claim(lane)
         if not job:
             return False
         try:
@@ -323,6 +332,12 @@ class Coordinator(Experience):
                 await self.create_persona(job)
             elif job["kind"] == "draft":
                 await self.create_draft(job)
+            elif job["kind"] == "question":
+                await self.prepare_question(job)
+            elif job["kind"] == "voice_upload":
+                await self.prepare_voice(job)
+            elif job["kind"] == "voice_confirm":
+                await self.confirm_voice(job)
             elif job["kind"] == "action":
                 await self.action(job)
             elif job["kind"] in {
@@ -401,6 +416,12 @@ class Coordinator(Experience):
             if self.dm_replies:
                 group.create_task(self.dm_replies.run())
             group.create_task(self.run_jobs())
+            group.create_task(self.run_voice_jobs())
+
+    async def run_voice_jobs(self):
+        while True:
+            await self.process_once("voice")
+            await asyncio.sleep(0.25)
 
     async def run_jobs(self):
         next_plan = 0
@@ -413,5 +434,5 @@ class Coordinator(Experience):
                         "Automatic draft planning failed; retrying on next interval."
                     )
                 next_plan = time.monotonic() + self.config.poll_seconds
-            await self.process_once()
+            await self.process_once("main")
             await asyncio.sleep(0.25)

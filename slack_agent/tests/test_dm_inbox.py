@@ -3,34 +3,39 @@ import json
 from types import SimpleNamespace
 
 from virtual_you.backend.errors import ServiceError
+
 from virtualyou_workflow.dm_inbox import DMInbox
-from .test_dm_replies import make_monitor
+
+from .test_dm_replies import make_monitor, supported_reply
 
 
 def setup_inbox(tmp_path):
     old, calls = make_monitor(tmp_path)
     c = old.c
     people = {
-        'UFRIEND': {'recipient':'UFRIEND','name':'First','human_channel':'DHUMAN','reviewed_version':1},
-        'UTWO': {'recipient':'UTWO','name':'Second','human_channel':'DTWO','reviewed_version':1},
+        'UFRIEND': {'recipient':'UFRIEND','name':'First','human_channel':'DHUMAN','reviewed_version':1,'projects':['A']},
+        'UTWO': {'recipient':'UTWO','name':'Second','human_channel':'DTWO','reviewed_version':1,'projects':['A']},
     }
-    seeds=[]; model_inputs=[]
+    seeds = []
+    model_inputs = []
     def person(key):
-        if key not in people: raise ServiceError('recipient_not_selected','missing')
+        if key not in people:
+            raise ServiceError('recipient_not_selected', 'missing')
         return dict(people[key])
     def profile(key):
-        if key not in {'UFRIEND','UTWO'}: raise ServiceError('persona_not_found','missing')
+        if key not in {'UFRIEND', 'UTWO'}:
+            raise ServiceError('persona_not_found', 'missing')
         return {'version':1,'style':{'tone':'formal' if key=='UFRIEND' else 'casual'}}
     def select(key, automatic, dedupe):
         seeds.append(key)
-        people[key]={'recipient':key,'name':key,'status':'preparing'}
+        people[key]={'recipient':key,'name':key,'status':'preparing','projects':['A']}
     c.state=SimpleNamespace(recipient=person, recipients=lambda:list(people.values()),
         save_recipient=lambda p:people.update({p['recipient']:dict(p)}))
     c.select=select
     c.backend.store.get_persona=profile
     async def generate(**kwargs):
         model_inputs.append(json.loads(kwargs['user']))
-        return {'paragraphs':[{'text':'Not recorded in the selected activity.', 'citations':[]}], 'search_query':''}
+        return supported_reply(kwargs)
     c.backend.persona.provider.generate=generate
     slack=c.bot()
     slack.conversations_info=lambda channel:{'channel':{'is_im':True,'user':'UNEW'}}
@@ -40,7 +45,7 @@ def setup_inbox(tmp_path):
 
 
 def event(user,channel,ts='2000000001.0'):
-    return {'user':user,'channel':channel,'channel_type':'im','ts':ts,'text':'Hello'}
+    return {'user':user,'channel':channel,'channel_type':'im','ts':ts,'text':'What is the current status?'}
 
 
 def test_routing_uses_independent_personas_and_preserves_profiles(tmp_path):
@@ -49,8 +54,10 @@ def test_routing_uses_independent_personas_and_preserves_profiles(tmp_path):
     async def run():
         inbox.receive_event(event('UFRIEND','DHUMAN'),'TTEAM')
         inbox.receive_event(event('UTWO','DTWO'),'TTEAM')
-        await inbox.route_one();await inbox.route_one()
-        await inbox.prepare_one();await inbox.prepare_one()
+        await inbox.route_one()
+        await inbox.route_one()
+        await inbox.prepare_one()
+        await inbox.prepare_one()
         assert {x['style_only']['tone'] for x in inputs}=={'formal','casual'}
         assert all(x['channel']=='DBOTUOWNER' for x in calls)
         assert not seeds
@@ -81,7 +88,8 @@ def test_filters_wrong_workspace_group_self_bots_and_old_events(tmp_path):
         ({**event('UTWO','DTWO'),'bot_id':'B1'},'TTEAM'),
         ({**event('UTWO','DTWO'),'subtype':'message_changed'},'TTEAM'),
         (event('UTWO','DTWO','1.0'),'TTEAM')]
-    for e,t in samples: inbox.receive_event(e,t)
+    for e, t in samples:
+        inbox.receive_event(e, t)
     with inbox.c.backend.store.connection() as db:
         assert db.execute('select count(*) from slack_dm_inbox').fetchone()[0]==0
 

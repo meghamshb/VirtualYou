@@ -232,6 +232,8 @@ def register(app, coordinator=None):
 
     @app.event("message")
     def owner_message(event, body, client):
+        if coordinator.receive_member4(event, body):
+            return
         if coordinator.dm_replies:
             coordinator.dm_replies.receive_event(event, body.get("team_id"))
         if getattr(coordinator.dm_replies, "all_personal_dms", False):
@@ -276,10 +278,12 @@ def register(app, coordinator=None):
 
     # Explicitly acknowledge unsupported mentions without publishing a response as the owner.
     @app.event("app_mention")
-    def mention(event):
-        return
+    def mention(event, body):
+        coordinator.receive_member4(event, body, mention=True)
 
     from .setup_listeners import register_setup
 
     register_setup(app, coordinator, event_key)
+    from .member4 import register_member4
+    register_member4(app, coordinator, event_key)
     return coordinator
