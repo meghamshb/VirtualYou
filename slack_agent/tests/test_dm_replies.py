@@ -129,6 +129,33 @@ def test_events_deduplicate_polling_and_filter_scope(tmp_path):
         assert db.execute('select count(*) from slack_dm_replies').fetchone()[0]==1
 
 
+def test_follow_up_reply_uses_recent_connector_context(tmp_path):
+    monitor, _ = make_monitor(tmp_path)
+    queries = []
+
+    async def generate(**kwargs):
+        queries.append(json.loads(kwargs['user'])['incoming_message'])
+        return {'paragraphs': [{'text': 'Not recorded in the selected activity.', 'citations': []}], 'search_query': ''}
+
+    monitor.c.backend.persona.provider.generate = generate
+
+    async def run():
+        with monitor.c.backend.store.connection(write=True) as db:
+            monitor._insert(db, 'DHUMAN', {
+                'user': 'UFRIEND', 'ts': '2000000001.0',
+                'text': 'Any progress on the GitHub connector?',
+            })
+            monitor._insert(db, 'DHUMAN', {
+                'user': 'UFRIEND', 'ts': '2000000002.0',
+                'text': 'Have you updated it or anything?',
+            })
+            db.execute("UPDATE slack_dm_replies SET state='rejected' WHERE source_ts='2000000001.0'")
+        await monitor.prepare_one()
+        assert queries == ['Have you updated it or anything? GitHub connector']
+
+    asyncio.run(run())
+
+
 def test_user_delivery_uses_original_dm_and_snapshotted_identity(tmp_path):
     monitor, calls=make_monitor(tmp_path)
     monitor.send_as='user'

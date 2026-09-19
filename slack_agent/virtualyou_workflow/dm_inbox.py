@@ -60,7 +60,7 @@ class DMInbox:
         text = redact_text(event.get('text', '')).strip()[:4000]
         if not text or not event.get('channel'):
             return
-        payload = {key: event[key] for key in ('user', 'channel', 'ts')}
+        payload = {key: event[key] for key in ('user', 'channel', 'ts', 'thread_ts') if key in event}
         payload.update(text=text, channel_type='im')
         key = hashlib.sha256((payload['channel'] + ':' + payload['ts']).encode()).hexdigest()
         with self.c.backend.store.connection(write=True) as db:

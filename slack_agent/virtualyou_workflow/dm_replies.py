@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from virtual_you.backend.errors import ServiceError
 from virtual_you.ingest.redact import redact_text
+from .conversation_context import ConversationContext, conversation_id, evidence_references
 from .history import slack_call, RetryLater
 from .views import plain
 
@@ -27,18 +28,21 @@ class DMReplies:
         # Personal-DM replies always return through the owner's account.
         # The bot token is used only for private approval cards.
         self.send_as = 'user'
+        self.context = ConversationContext(self.c.backend.store)
         with self.c.backend.store.connection(write=True) as db:
             db.execute('''CREATE TABLE IF NOT EXISTS slack_dm_replies (
                 id TEXT PRIMARY KEY, recipient TEXT NOT NULL, channel TEXT NOT NULL,
                 source_ts TEXT NOT NULL, prompt TEXT NOT NULL, reply TEXT,
                 state TEXT NOT NULL, card_channel TEXT, card_ts TEXT,
+                thread_ts TEXT NOT NULL DEFAULT '',
                 UNIQUE(channel, source_ts))''')
             columns = {r['name'] for r in db.execute('PRAGMA table_info(slack_dm_replies)')}
             for name, definition in [('send_as', "TEXT NOT NULL DEFAULT 'bot'"),
                                      ('received_at', 'REAL'), ('model_seconds', 'REAL'), ('ready_at', 'REAL'),
                                      ('style_source', "TEXT NOT NULL DEFAULT 'reviewed persona'"),
                                      ('grounding', "TEXT NOT NULL DEFAULT '{}'"),
-                                     ('policy', "TEXT NOT NULL DEFAULT ''")]:
+                                     ('policy', "TEXT NOT NULL DEFAULT ''"),
+                                     ('thread_ts', "TEXT NOT NULL DEFAULT ''")]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE slack_dm_replies ADD COLUMN {name} {definition}')
             # Never replay an interrupted send: it may already have reached Slack.
@@ -73,8 +77,33 @@ class DMReplies:
             return
         ts = message['ts']
         identity = hashlib.sha256((channel + ':' + ts).encode()).hexdigest()
-        db.execute('INSERT OR IGNORE INTO slack_dm_replies(id,recipient,channel,source_ts,prompt,state,send_as,received_at) VALUES(?,?,?,?,?,?,?,?)',
-                   (identity, self.recipient, channel, ts, content, 'queued', self.send_as, time.time()))
+        inserted = db.execute(
+            '''INSERT OR IGNORE INTO slack_dm_replies(
+                id,recipient,channel,source_ts,prompt,state,send_as,received_at,thread_ts
+            ) VALUES(?,?,?,?,?,?,?,?,?)''',
+            (
+                identity,
+                self.recipient,
+                channel,
+                ts,
+                content,
+                'queued',
+                self.send_as,
+                time.time(),
+                message.get('thread_ts') or '',
+            ),
+        ).rowcount
+        if not inserted:
+            return
+        # Conversation context is short-lived. It resolves references and
+        # records successful delivery snapshots, never factual work evidence.
+        self.context.record_turn(
+            conversation=conversation_id(channel, message.get('thread_ts')),
+            message_ts=ts,
+            participant_id=self.recipient,
+            role='colleague',
+            text=content,
+        )
 
     def get(self, reply_id):
         with self.c.backend.store.connection() as db:
@@ -100,6 +129,7 @@ class DMReplies:
         if time.monotonic() < self.next_poll or self.c.preferences().get('paused'):
             return
         self.next_poll = time.monotonic() + self.poll_seconds
+        self.context.purge_expired()
         person = self.c.state.recipient(self.recipient)
         if not person.get('human_channel'):
             return
@@ -199,13 +229,36 @@ class DMReplies:
             try:
                 started = time.monotonic()
                 scope = self.c.scope(person)
+                resolved = self.context.resolve(
+                    conversation_id(row['channel'], row.get('thread_ts') or None), row['prompt']
+                )
+                memory = self.context.memory(
+                    conversation_id(row['channel'], row.get('thread_ts') or None),
+                    exclude_message_ts=row['source_ts'],
+                )
+                if resolved.is_ambiguous:
+                    options = ' or '.join(resolved.ambiguous_topics)
+                    result = {
+                        'text': 'Could you clarify which topic you mean: {}?'.format(options),
+                        'evidence': [],
+                        'paragraphs': [],
+                    }
+                else:
+                    result = None
                 # Keep the standard recent window for general progress; targeted
                 # questions may retrieve older work within the same allowed audience.
                 import re
-                if not re.search(r'\b(progress|status|update|report|recent|today|yesterday)\b', row['prompt'], re.I):
+                if not re.search(r'\b(progress|status|update|report|recent|today|yesterday)\b', resolved.query, re.I):
                     scope = scope.model_copy(update={'since': None})
-                result = await self.c.backend.engine.reply(
-                    question=row['prompt'], scope=scope, style=profile['style'])
+                if result is None:
+                    result = await self.c.backend.engine.reply(
+                        question=resolved.query,
+                        scope=scope,
+                        style=profile['style'],
+                        conversation_history=list(memory.history),
+                        delivered_evidence_refs=list(memory.delivered_evidence_refs),
+                        has_prior_delivery=memory.has_prior_delivery,
+                    )
                 row['reply'] = result['text']
                 row['grounding'] = json.dumps(result)
                 row['policy'] = self.c.policy_fingerprint(person)
@@ -268,14 +321,32 @@ class DMReplies:
             try:
                 client = user_client
                 channel = row['channel']
-                await asyncio.to_thread(slack_call, client.chat_postMessage, channel=channel,
-                    text=row['reply'], mrkdwn=False, parse='none', unfurl_links=False, unfurl_media=False)
+                payload = {
+                    'channel': channel,
+                    'text': row['reply'],
+                    'mrkdwn': False,
+                    'parse': 'none',
+                    'unfurl_links': False,
+                    'unfurl_media': False,
+                }
+                if row.get('thread_ts'):
+                    payload['thread_ts'] = row['thread_ts']
+                sent = await asyncio.to_thread(slack_call, client.chat_postMessage, **payload)
             except Exception:
                 with self.c.backend.store.connection(write=True) as db:
                     db.execute("UPDATE slack_dm_replies SET state='delivery_unknown' WHERE id=?", (reply_id,))
                 raise
             with self.c.backend.store.connection(write=True) as db:
                 db.execute("UPDATE slack_dm_replies SET state='sent' WHERE id=?", (reply_id,))
+            self.context.record_turn(
+                conversation=conversation_id(channel, row.get('thread_ts') or None),
+                message_ts=str(sent.get('ts') or '{}:reply'.format(row['source_ts'])),
+                participant_id=self.c.config.owner_id,
+                role='owner',
+                text=row['reply'],
+                delivered_at=time.time(),
+                evidence_refs=evidence_references(json.loads(row['grounding'])),
+            )
             status = 'Sent as you in the original DM.'
         await asyncio.to_thread(slack_call, self.c.bot().chat_update, channel=row['card_channel'], ts=row['card_ts'],
             text=status, blocks=self.blocks(row, status))
