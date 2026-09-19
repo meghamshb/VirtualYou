@@ -2,12 +2,13 @@
 
 ## Interaction and identity
 
-Use a human message's **More actions → Ask a VirtualYou** shortcut. Select the
-owner and confirm a question. Message shortcuts retain channel/message context;
-custom slash commands cannot be invoked inside threads. App mentions do not
-provide per-person bot aliases. This implementation deliberately uses only the
-message shortcut for groups: no channel/MPIM message subscriptions or automatic
-ambient-message responses are added.
+In an enabled conversation, send **@Yash + a project question**, selecting the real
+Slack user mention. The owner mention activates that owner's VirtualYou. Untagged
+messages, self messages, bot messages, message edits, quoted/code mentions and
+messages mentioning multiple people are ignored. The current installation serves
+Yash only. Events are subscribed through `message.channels`, `message.groups` and
+`message.mpim` using the existing user history scopes. No additional OAuth scopes
+are needed. The message shortcut remains available as a secondary path.
 
 The current installation hosts one configured owner. Choosing another owner is
 rejected; hosting several owners in one installation requires a separate
@@ -39,12 +40,13 @@ source scope is inherited. Shared/external conversations are rejected. The owner
 and requester must both be current members. Changed membership requires renewed
 audience review. Unknown/missing permissions fail closed.
 
-For the initial trial: `#all-test`, project `virtualyou`, formal group style,
-approval required. Other conversations remain disabled.
+For the current trial: `#all-test`, project `virtualyou`, formal group style,
+automatic replies explicitly enabled by the owner. Other conversations remain disabled.
+Existing pending drafts are not retroactively sent when automatic mode is enabled.
 
 ## Processing and automatic mode
 
-The shortcut creates a durable owner/requester/conversation/thread-bound request.
+The mention or shortcut creates a durable owner/requester/conversation/thread-bound request.
 Up to 60 thread messages are fetched and the most recent 15 sanitized human
 messages are passed as **untrusted reference context**, never factual evidence.
 Incomplete pagination routes to owner attention instead of silently guessing.

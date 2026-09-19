@@ -23,7 +23,7 @@ def group_reason(reason):
 def group_blocks(groups):
     blocks = [
         section(
-            "Group conversations: explicit message shortcut only. Replies appear as the owner, labelled VirtualYou. Each conversation has its own audience scope."
+            "Group conversations: tag the owner with a question, or use Ask a VirtualYou. Replies appear as the owner, labelled VirtualYou. Each conversation has its own audience scope."
         ),
         {
             "type": "actions",
@@ -52,6 +52,11 @@ def group_blocks(groups):
         blocks.append(
             section(
                 f"Group question in {request['channel']} from {request['requester']} · {request['state']}\n{request['question']}\n{group_reason(request.get('reason', ''))}"
+                + (
+                    "\nAwaiting owner approval; nothing has been sent."
+                    if request["state"] == "pending"
+                    else ""
+                )
             )
         )
         if request["state"] == "pending":

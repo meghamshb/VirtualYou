@@ -427,3 +427,71 @@ def test_waiting_dispatch_worker_observes_automatic_off(group):
     key = question(g)
     asyncio.run(g.prepare(key))
     assert not calls and g.get(key)["state"] == "pending"
+
+
+def test_owner_mention_routes_once_to_scoped_pipeline(group):
+    g, slack, calls, prompts, model = group
+    g.configure("UOWNER", "CCHAN", ["virtualyou"], ["claude"], "formal", automatic=True)
+    event = dict(
+        type="message",
+        channel_type="channel",
+        channel="CCHAN",
+        user="UASKER",
+        ts="100.1",
+        text="<@UOWNER> What is the status?",
+    )
+    key = g.receive_mention(event, "TTEAM")
+    assert key == g.receive_mention(event, "TTEAM")
+    assert g.get(key)["question"] == "What is the status?"
+    asyncio.run(g.prepare(key))
+    assert g.get(key)["state"] == "sent"
+    asyncio.run(g.prepare(key))
+    assert len(calls) == 1
+    assert calls[0]["thread_ts"] == "100.1"
+    policy = g.policy("CCHAN")
+    g.configure(
+        "UOWNER",
+        "CCHAN",
+        ["virtualyou"],
+        ["claude"],
+        "formal",
+        automatic=True,
+        expected_revision=policy["revision"],
+        expected_auto_epoch=policy["auto_epoch"],
+    )
+    assert g.receive_mention(event, "TTEAM") == key
+    asyncio.run(g.prepare(key))
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "changes,team",
+    [
+        ({"text": "What is the status?"}, "TTEAM"),
+        ({"text": "<@UOTHER> status?"}, "TTEAM"),
+        ({"text": "<@UOWNER> <@UOTHER> status?"}, "TTEAM"),
+        ({"text": "`<@UOWNER>` status?"}, "TTEAM"),
+        ({"text": "> <@UOWNER> status?"}, "TTEAM"),
+        ({"text": "<@UOWNER>"}, "TTEAM"),
+        ({"user": "UOWNER"}, "TTEAM"),
+        ({"bot_id": "BOTHER"}, "TTEAM"),
+        ({"subtype": "message_changed"}, "TTEAM"),
+        ({"channel_type": "im"}, "TTEAM"),
+        ({"channel": "CDISABLED"}, "TTEAM"),
+        ({}, "TOTHER"),
+    ],
+)
+def test_mention_ignores_ambient_ambiguous_bot_and_private_messages(group, changes, team):
+    g, *_ = group
+    g.configure("UOWNER", "CCHAN", ["virtualyou"], ["claude"], "formal")
+    event = dict(
+        type="message",
+        channel_type="channel",
+        channel="CCHAN",
+        user="UASKER",
+        ts="100.1",
+        text="<@UOWNER> status?",
+    )
+    event.update(changes)
+    assert g.receive_mention(event, team) is None
+    assert not g.requests()

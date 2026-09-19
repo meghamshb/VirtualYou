@@ -229,7 +229,46 @@ class GroupConversations:
                 {"channel": channel, "owner": actor, "epoch": value["auto_epoch"]},
             )
 
-    def intent(self, body):
+    def receive_mention(self, event, team):
+        """Only a real, single-owner Slack mention activates group assistance."""
+        channel = event.get("channel", "")
+        text = event.get("text", "")
+        if (
+            team != self.c.config.team_id
+            or event.get("channel_type") not in {"channel", "group", "mpim"}
+            or event.get("subtype")
+            or event.get("bot_id")
+            or event.get("app_id")
+            or not event.get("user")
+            or event.get("user") == self.c.config.owner_id
+            or text.startswith("VirtualYou for ")
+        ):
+            return None
+        # Code/quoted examples are not a direct invocation. Multiple tagged people
+        # are ambiguous; require a question addressed to this owner alone.
+        directed = re.sub(r"```[\s\S]*?```|`[^`]*`", "", text)
+        directed = "\n".join(line for line in directed.splitlines() if not line.lstrip().startswith(">"))
+        mentions = set(re.findall(r"<@([UW][A-Z0-9]+)(?:\|[^>]+)?>", directed))
+        if mentions != {self.c.config.owner_id}:
+            return None
+        question = re.sub(r"<@[UW][A-Z0-9]+(?:\|[^>]+)?>", "", directed).strip(" :,-\n")
+        if not question or len(question) > 1000:
+            return None
+        policy = self.policy(channel)
+        if not policy or not policy["enabled"]:
+            return None
+        intent = self.intent(
+            {
+                "team": {"id": team},
+                "channel": {"id": channel},
+                "user": {"id": event["user"]},
+                "message": event,
+            },
+            trigger="mention",
+        )
+        return self.enqueue(intent["id"], event["user"], self.c.config.owner_id, question)
+
+    def intent(self, body, trigger="shortcut"):
         message = body.get("message", {})
         channel = body.get("channel", {}).get("id", "")
         if (
@@ -254,6 +293,7 @@ class GroupConversations:
             raise ServiceError("invalid_thread", "Choose a threadable message.", 422)
         value = dict(
             id=str(uuid4()),
+            trigger=trigger,
             channel=channel,
             thread=origin,
             message_ts=message["ts"],
@@ -303,6 +343,10 @@ class GroupConversations:
                 ]
             ).encode()
         ).hexdigest()
+        if intent.get("trigger") == "mention":
+            dedupe = hashlib.sha256(
+                json.dumps([owner, intent["channel"], intent["message_ts"], "mention"]).encode()
+            ).hexdigest()
         value = {
             **intent,
             "id": dedupe,

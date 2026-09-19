@@ -232,6 +232,9 @@ def register(app, coordinator=None):
 
     @app.event("message")
     def owner_message(event, body, client):
+        if event.get("channel_type") in {"channel", "group", "mpim"}:
+            coordinator.groups.receive_mention(event, body.get("team_id"))
+            return
         if coordinator.receive_member4(event, body):
             return
         if coordinator.dm_replies:
