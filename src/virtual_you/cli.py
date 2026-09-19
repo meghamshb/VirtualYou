@@ -3,25 +3,69 @@
 import argparse
 import json
 import sys
+import time
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, NoReturn, Optional, Sequence
 
 from virtual_you.contracts.activity import ActivityRecord
+from virtual_you.ingest.discover import discover_latest_session
 from virtual_you.ingest.errors import IngestionError
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="virtual-you")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="directory for sanitized records and checkpoints (default: ~/.virtual-you)",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     ingest = commands.add_parser("ingest", help="ingest one activity source")
-    ingest.add_argument("path", type=Path)
-    ingest.add_argument("--source", required=True, choices=("claude", "cursor", "voice"))
+    ingest.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        help="session file to ingest; omit when using --latest",
+    )
+    ingest.add_argument(
+        "--source",
+        required=True,
+        choices=("claude", "cursor", "codex", "voice"),
+    )
+    ingest.add_argument(
+        "--latest",
+        action="store_true",
+        help="ingest the newest local session for --source instead of a path",
+    )
 
     watch = commands.add_parser("watch", help="watch an append-only activity source")
-    watch.add_argument("path", type=Path)
-    watch.add_argument("--source", required=True, choices=("claude", "cursor"))
+    watch.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        help="session file to watch; omit when using --latest",
+    )
+    watch.add_argument("--source", required=True, choices=("claude", "cursor", "codex"))
+    watch.add_argument(
+        "--latest",
+        action="store_true",
+        help="watch the newest local session for --source instead of a path",
+    )
+    watch.add_argument(
+        "--follow",
+        action="store_true",
+        help="keep polling for newly appended JSONL lines",
+    )
+    watch.add_argument(
+        "--interval",
+        type=float,
+        default=1.0,
+        help="seconds between --follow polls (default: 1.0)",
+    )
 
     commands.add_parser("latest", help="show the latest sanitized activity")
     commands.add_parser("schema", help="print the ActivityRecord JSON Schema")
@@ -32,20 +76,33 @@ def main(
     argv: Optional[Sequence[str]] = None,
     *,
     service: Optional[Any] = None,
+    discover: Optional[Callable[..., Path]] = None,
 ) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
-    ingestion_service = service or _create_service(parser)
+    data_directory = (
+        arguments.data_dir.expanduser() if arguments.data_dir is not None else None
+    )
+    ingestion_service = service or _create_service(parser, data_directory)
+    discover_fn = discover or discover_latest_session
 
     try:
         if arguments.command == "ingest":
             result = ingestion_service.ingest(
-                path=arguments.path,
+                path=_resolve_source_path(arguments, parser, discover_fn),
                 source=arguments.source,
             )
         elif arguments.command == "watch":
+            source_path = _resolve_source_path(arguments, parser, discover_fn)
+            if arguments.follow:
+                return _watch_follow(
+                    ingestion_service,
+                    path=source_path,
+                    source=arguments.source,
+                    interval=arguments.interval,
+                )
             result = ingestion_service.watch(
-                path=arguments.path,
+                path=source_path,
                 source=arguments.source,
             )
         elif arguments.command == "latest":
@@ -53,8 +110,7 @@ def main(
         elif arguments.command == "schema":
             result = ActivityRecord.model_json_schema()
         else:
-            parser.error("unknown command")
-            return 2
+            _assert_never(arguments.command)
     except IngestionError as error:
         print(json.dumps(error.as_dict(), sort_keys=True), file=sys.stderr)
         return 1
@@ -64,11 +120,51 @@ def main(
     return 0
 
 
-def _create_service(parser: argparse.ArgumentParser) -> Any:
+def _watch_follow(
+    service: Any,
+    *,
+    path: Path,
+    source: str,
+    interval: float,
+) -> int:
+    poll_interval = interval if interval > 0 else 1.0
+    try:
+        while True:
+            try:
+                result = service.watch(path=path, source=source)
+            except IngestionError as error:
+                print(json.dumps(error.as_dict(), sort_keys=True), file=sys.stderr)
+                return 1
+            if result is not None:
+                print(_serialize(result))
+            time.sleep(poll_interval)
+    except KeyboardInterrupt:
+        return 0
+
+
+def _resolve_source_path(
+    arguments: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    discover: Callable[..., Path],
+) -> Path:
+    if arguments.path is not None:
+        return arguments.path
+    if arguments.latest:
+        return discover(arguments.source)
+    parser.error("provide a path or --latest")
+    raise AssertionError("argparse.error always exits")
+
+
+def _create_service(
+    parser: argparse.ArgumentParser,
+    data_directory: Optional[Path] = None,
+) -> Any:
     try:
         module = import_module("virtual_you.ingest.service")
         service_class = getattr(module, "IngestionService")
-        return service_class()
+        if data_directory is None:
+            return service_class()
+        return service_class(data_directory=data_directory)
     except (ImportError, AttributeError, TypeError) as exc:
         parser.error(
             "IngestionService is not available; inject a service or complete "
@@ -81,6 +177,10 @@ def _serialize(value: Any) -> str:
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
     return json.dumps(value, indent=2, sort_keys=True, default=str)
+
+
+def _assert_never(value: str) -> NoReturn:
+    raise AssertionError("unhandled command: {}".format(value))
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ _TOOL_OPERATIONS = {
     "multiedit": "modified",
     "notebookedit": "modified",
     "read": "read",
-    "write": "modified",
+    "write": "added",
 }
 
 
@@ -138,6 +138,10 @@ def _file_event(
         new = tool_input.get("new_string")
         if isinstance(old, str) or isinstance(new, str):
             diff = "{}\n---\n{}".format(old or "", new or "")
+    elif normalized_name == "write":
+        contents = tool_input.get("contents", tool_input.get("content"))
+        if isinstance(contents, str) and contents:
+            diff = contents
     return FileChangeEvent(
         line_number=line_number,
         timestamp=timestamp,

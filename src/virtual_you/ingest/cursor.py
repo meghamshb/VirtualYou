@@ -1,10 +1,11 @@
 """Read Cursor agent transcripts without modifying Cursor's local state."""
 
 import json
+import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 from virtual_you.ingest.errors import IngestionError, IngestionErrorCode
 from virtual_you.ingest.events import (
@@ -17,6 +18,7 @@ from virtual_you.ingest.events import (
     ToolResultEvent,
     UserPromptEvent,
 )
+from virtual_you.ingest.patches import file_changes_from_mapping
 
 
 PathLike = Union[str, Path]
@@ -57,6 +59,48 @@ _PATH_KEYS = (
     "relativePath",
     "uri",
 )
+_MUTATING_TOOL_TOKENS = (
+    "edit",
+    "write",
+    "create",
+    "delete",
+    "remove",
+    "rename",
+    "move",
+    "patch",
+    "strreplace",
+    "searchreplace",
+)
+_USER_QUERY_TAG = re.compile(
+    r"<user_query>\s*(.*?)\s*</user_query>",
+    re.IGNORECASE | re.DOTALL,
+)
+_TIMESTAMP_TAG = re.compile(
+    r"<timestamp>\s*(.*?)\s*</timestamp>",
+    re.IGNORECASE | re.DOTALL,
+)
+_CURSOR_CLOCK = re.compile(
+    r"(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+"
+    r"(?P<day>\d{1,2}),\s+(?P<year>\d{4}),\s+"
+    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})\s+(?P<ampm>AM|PM)"
+    r"(?:\s*\(\s*UTC\s*(?P<offset>[+-]\d{1,2}(?::\d{2})?)\s*\))?",
+    re.IGNORECASE,
+)
+_MONTH_NUMBERS = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+_SUCCEEDED_TURN_STATUSES = {"success", "ok", "completed", "complete"}
 
 
 def discover_cursor_source(root: PathLike) -> Path:
@@ -120,56 +164,69 @@ def parse_cursor_jsonl(path: PathLike) -> List[RawEvent]:
             "Cursor source was not found.",
         )
 
-    events: List[RawEvent] = []
-    had_records = False
     try:
         with transcript.open("r", encoding="utf-8") as handle:
-            for line_number, raw_line in enumerate(handle, start=1):
-                if not raw_line.strip():
-                    continue
-                had_records = True
-                try:
-                    payload = json.loads(raw_line)
-                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                    raise _malformed(line_number) from exc
-                parsed = _events_from_payload(payload, line_number)
-                _assert_supported_transcript_payload(payload, parsed, line_number)
-                events.extend(parsed)
+            return _parse_cursor_lines(handle)
+    except IngestionError:
+        raise
     except OSError as exc:
         raise IngestionError(
             IngestionErrorCode.STORAGE_ERROR,
             "Cursor source could not be read.",
         ) from exc
 
-    if not had_records:
-        raise IngestionError(
-            IngestionErrorCode.NOTHING_TO_REPORT,
-            "Cursor transcript contains no records.",
-        )
-    if not events:
-        raise IngestionError(
-            IngestionErrorCode.NOTHING_TO_REPORT,
-            "Cursor transcript contains no reportable events.",
-        )
-    return events
-
 
 def parse_cursor_jsonl_text(text: str) -> List[RawEvent]:
     """Parse Cursor JSONL already loaded in memory."""
 
+    return _parse_cursor_lines(text.splitlines())
+
+
+def _parse_cursor_lines(lines: Iterable[str]) -> List[RawEvent]:
     events: List[RawEvent] = []
     had_records = False
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+    open_calls: List[Tuple[str, int, Optional[datetime], Optional[str]]] = []
+    answered: Set[str] = set()
+    for line_number, raw_line in enumerate(lines, start=1):
+        if not isinstance(raw_line, str):
+            raise _malformed(line_number)
         if not raw_line.strip():
             continue
         had_records = True
         try:
             payload = json.loads(raw_line)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise _malformed(line_number) from exc
         parsed = _events_from_payload(payload, line_number)
         _assert_supported_transcript_payload(payload, parsed, line_number)
-        events.extend(parsed)
+        for event in parsed:
+            if isinstance(event, ToolCallEvent):
+                open_calls.append(
+                    (event.call_id, event.line_number, event.timestamp, event.session_id)
+                )
+            elif isinstance(event, ToolResultEvent):
+                answered.add(event.call_id)
+            events.append(event)
+        status = _turn_ended_status(payload)
+        if status is None:
+            continue
+        is_error = status.lower() not in _SUCCEEDED_TURN_STATUSES
+        for call_id, call_line, timestamp, session_id in open_calls:
+            if call_id in answered:
+                continue
+            events.append(
+                ToolResultEvent(
+                    line_number=call_line,
+                    timestamp=timestamp,
+                    session_id=session_id,
+                    call_id=call_id,
+                    content="Turn ended ({})".format(status),
+                    is_error=is_error,
+                )
+            )
+            answered.add(call_id)
+        open_calls = []
+
     if not had_records:
         raise IngestionError(
             IngestionErrorCode.NOTHING_TO_REPORT,
@@ -228,8 +285,10 @@ def read_cursor_state_db(path: PathLike) -> List[RawEvent]:
 def _events_from_payload(payload: Any, line_number: int) -> List[RawEvent]:
     records = list(_iter_records(payload))
     events: List[RawEvent] = []
+    tool_index = 0
     for record in records:
-        events.extend(_map_record(record, line_number))
+        parsed, tool_index = _map_record(record, line_number, tool_index)
+        events.extend(parsed)
     return events
 
 
@@ -298,7 +357,9 @@ def _looks_like_event(record: Mapping[str, Any]) -> bool:
     }
 
 
-def _map_record(record: Mapping[str, Any], line_number: int) -> List[RawEvent]:
+def _map_record(
+    record: Mapping[str, Any], line_number: int, tool_index: int
+) -> Tuple[List[RawEvent], int]:
     message = record.get("message")
     body = message if isinstance(message, dict) else record
     record_type = _record_type(record)
@@ -319,49 +380,59 @@ def _map_record(record: Mapping[str, Any], line_number: int) -> List[RawEvent]:
             keys=("session_id", "sessionId", "conversationId", "composerId", "chatId"),
         )
     )
-    common = {
+    common: Dict[str, Any] = {
         "line_number": line_number,
         "timestamp": timestamp,
         "session_id": session_id,
     }
 
     if record_type in {"tool_call", "tool_use"}:
-        return _tool_call_events(body, common)
+        events = _tool_call_events(body, common, tool_index)
+        return events, tool_index + 1
     if record_type == "tool_result" or role == "tool":
-        return [_tool_result_event(body, common)]
+        return [_tool_result_event(body, common)], tool_index
     if record_type == "file_change":
         change = _file_change_event(body, common)
-        return [change] if change is not None else []
+        return ([change] if change is not None else []), tool_index
     if record_type in {"session_end", "result"}:
-        return [
-            SessionEndEvent(
-                result=_content_text(body.get("result", body.get("content", ""))),
-                is_error=bool(body.get("is_error", body.get("isError", False))),
-                **common,
-            )
-        ]
+        return (
+            [
+                SessionEndEvent(
+                    result=_content_text(body.get("result", body.get("content", ""))),
+                    is_error=bool(body.get("is_error", body.get("isError", False))),
+                    **common,
+                )
+            ],
+            tool_index,
+        )
     if record_type in {"reasoning", "thinking"}:
         text = _content_text(body.get("content", body.get("text", "")))
-        return [ReasoningEvent(text=text, **common)] if text else []
+        return ([ReasoningEvent(text=text, **common)] if text else []), tool_index
 
     content = body.get("content", body.get("text", ""))
     if role == "user":
-        text = _content_text(content)
-        return [UserPromptEvent(text=text, **common)] if text else []
+        text, stamped = _cursor_user_prompt(_content_text(content))
+        if stamped is not None and common["timestamp"] is None:
+            common["timestamp"] = stamped
+        return ([UserPromptEvent(text=text, **common)] if text else []), tool_index
     if role == "assistant":
-        return _assistant_content_events(content, common)
-    return []
+        events, tool_index = _assistant_content_events(content, common, tool_index)
+        return events, tool_index
+    return [], tool_index
 
 
 def _assistant_content_events(
-    content: Any, common: Mapping[str, Any]
-) -> List[RawEvent]:
+    content: Any, common: Mapping[str, Any], tool_index: int
+) -> Tuple[List[RawEvent], int]:
     if isinstance(content, str):
-        return [AssistantTextEvent(text=content, **common)] if content.strip() else []
+        events = (
+            [AssistantTextEvent(text=content, **common)] if content.strip() else []
+        )
+        return events, tool_index
     if isinstance(content, dict):
         content = [content]
     if not isinstance(content, list):
-        return []
+        return [], tool_index
 
     events: List[RawEvent] = []
     for block in content:
@@ -381,18 +452,18 @@ def _assistant_content_events(
             if text:
                 events.append(ReasoningEvent(text=text, **common))
         elif block_type in {"tool_call", "tool_use"}:
-            events.extend(_tool_call_events(block, common))
+            events.extend(_tool_call_events(block, common, tool_index))
+            tool_index += 1
         elif block_type == "tool_result":
             events.append(_tool_result_event(block, common))
-    return events
+    return events, tool_index
 
 
 def _tool_call_events(
-    record: Mapping[str, Any], common: Mapping[str, Any]
+    record: Mapping[str, Any],
+    common: Mapping[str, Any],
+    tool_index: int,
 ) -> List[RawEvent]:
-    call_id = _optional_text(
-        _first_value(record, keys=("call_id", "tool_call_id", "toolCallId", "id"))
-    ) or "cursor-tool-{}".format(common["line_number"])
     function = record.get("function")
     function_data = function if isinstance(function, dict) else {}
     name = _optional_text(
@@ -402,6 +473,9 @@ def _tool_call_events(
             keys=("name", "tool_name", "toolName"),
         )
     ) or "unknown"
+    call_id = _optional_text(
+        _first_value(record, keys=("call_id", "tool_call_id", "toolCallId", "id"))
+    ) or "cursor-tool-{}-{}-{}".format(common["line_number"], name, tool_index)
     raw_input = _first_value(
         record,
         function_data,
@@ -411,9 +485,7 @@ def _tool_call_events(
     events: List[RawEvent] = [
         ToolCallEvent(call_id=call_id, name=name, input=tool_input, **common)
     ]
-    file_change = _file_change_from_tool(name, call_id, tool_input, common)
-    if file_change is not None:
-        events.append(file_change)
+    events.extend(_file_changes_from_tool(name, call_id, tool_input, common))
     return events
 
 
@@ -437,41 +509,70 @@ def _tool_result_event(
     )
 
 
-def _file_change_from_tool(
+def _file_changes_from_tool(
     name: str,
     call_id: str,
     tool_input: Mapping[str, Any],
     common: Mapping[str, Any],
-) -> Optional[FileChangeEvent]:
+) -> List[FileChangeEvent]:
     lowered = name.lower()
+    patch_changes = file_changes_from_mapping(
+        tool_input,
+        call_id=call_id,
+        line_number=common["line_number"],
+        timestamp=common["timestamp"],
+        session_id=common["session_id"],
+    )
+    if patch_changes:
+        return patch_changes
+
     operation = _operation(
         _first_value(tool_input, keys=("operation", "op", "action")), lowered
     )
     if operation == "unknown" and not any(
-        token in lowered
-        for token in ("edit", "write", "create", "delete", "remove", "rename", "move", "patch")
+        token in lowered for token in _MUTATING_TOOL_TOKENS
     ):
-        return None
+        return []
     path = _path_from_mapping(tool_input)
     if not path:
-        return None
+        return []
     previous_path = _optional_text(
         _first_value(
             tool_input,
             keys=("previous_path", "previousPath", "old_path", "oldPath", "from"),
         )
     )
-    diff = _optional_text(
+    diff = _diff_from_mapping(tool_input)
+    return [
+        FileChangeEvent(
+            path=path,
+            operation=operation,
+            call_id=call_id,
+            diff=diff,
+            previous_path=previous_path,
+            **common,
+        )
+    ]
+
+
+def _diff_from_mapping(tool_input: Mapping[str, Any]) -> Optional[str]:
+    explicit = _optional_text(
         _first_value(tool_input, keys=("diff", "patch", "changes"))
     )
-    return FileChangeEvent(
-        path=path,
-        operation=operation,
-        call_id=call_id,
-        diff=diff,
-        previous_path=previous_path,
-        **common,
+    if explicit:
+        return explicit
+    old_text = _optional_text(
+        _first_value(tool_input, keys=("old_string", "oldString"))
     )
+    new_text = _optional_text(
+        _first_value(
+            tool_input,
+            keys=("new_string", "newString", "contents", "content"),
+        )
+    )
+    if old_text or new_text:
+        return "{}\n---\n{}".format(old_text or "", new_text or "")
+    return None
 
 
 def _file_change_event(
@@ -534,7 +635,13 @@ def _operation(value: Any, tool_name: str) -> str:
         return "deleted"
     if "create" in combined or "write" in combined or "add" in combined:
         return "added"
-    if "edit" in combined or "patch" in combined or "modify" in combined:
+    if (
+        "edit" in combined
+        or "patch" in combined
+        or "modify" in combined
+        or "strreplace" in combined
+        or "searchreplace" in combined
+    ):
         return "modified"
     return "unknown"
 
@@ -563,6 +670,63 @@ def _content_text(value: Any) -> str:
     return str(value)
 
 
+def _turn_ended_status(payload: Any) -> Optional[str]:
+    if not isinstance(payload, Mapping):
+        return None
+    if str(payload.get("type", "")).lower() != "turn_ended":
+        return None
+    status = payload.get("status")
+    if status is None or status == "":
+        return "unknown"
+    return str(status)
+
+
+def _cursor_user_prompt(text: str) -> Tuple[str, Optional[datetime]]:
+    stamped = None
+    tagged = _TIMESTAMP_TAG.search(text)
+    if tagged:
+        stamped = _parse_cursor_clock(tagged.group(1))
+    query = _USER_QUERY_TAG.search(text)
+    if query:
+        return query.group(1).strip(), stamped
+    cleaned = _TIMESTAMP_TAG.sub("", text).strip()
+    return cleaned, stamped
+
+
+def _parse_cursor_clock(value: str) -> Optional[datetime]:
+    match = _CURSOR_CLOCK.search(value)
+    if match is None:
+        return None
+    hour = int(match.group("hour")) % 12
+    if match.group("ampm").upper() == "PM":
+        hour += 12
+    offset = match.group("offset") or "+0"
+    sign = 1 if offset.startswith("+") else -1
+    digits = offset[1:]
+    if ":" in digits:
+        hours_text, minutes_text = digits.split(":", 1)
+        offset_hours = int(hours_text)
+        offset_minutes = int(minutes_text)
+    else:
+        offset_hours = int(digits)
+        offset_minutes = 0
+    zone = timezone(
+        sign * timedelta(hours=offset_hours, minutes=offset_minutes)
+    )
+    try:
+        parsed = datetime(
+            int(match.group("year")),
+            _MONTH_NUMBERS[match.group("month").lower()[:3]],
+            int(match.group("day")),
+            hour,
+            int(match.group("minute")),
+            tzinfo=zone,
+        )
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def _parse_timestamp(value: Any) -> Optional[datetime]:
     if value is None or value == "":
         return None
@@ -582,9 +746,12 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _first_value(

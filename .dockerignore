@@ -1,0 +1,13 @@
+# Only application sources and packaging metadata belong in the build context.
+**
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!README.md
+!LICENSE
+!src/
+!src/**
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.env*

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class SourceKind(str, Enum):
     CLAUDE = "claude"
     CURSOR = "cursor"
+    CODEX = "codex"
     VOICE = "voice"
 
 
@@ -69,7 +70,16 @@ class ActivityRecord(BaseModel):
     tool_calls: List[ToolCall] = Field(default_factory=list)
     end_state: str = ""
     timestamp_range: TimestampRange
+    source_path: Optional[str] = None
     redacted: Literal[True] = True
+
+    @field_validator("source_path", mode="before")
+    @classmethod
+    def normalize_source_path(cls, value: object) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @field_validator(
         "start_state",

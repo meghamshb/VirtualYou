@@ -104,7 +104,7 @@ def test_parses_messages_blocks_tools_files_and_session_end():
 def test_extracts_common_tool_paths_and_operations():
     blocks = []
     expected = [
-        ("one.py", "modified"),
+        ("one.py", "added"),
         ("two.py", "modified"),
         ("three.ipynb", "modified"),
         ("four.py", "read"),
@@ -117,12 +117,15 @@ def test_extracts_common_tool_paths_and_operations():
             ("Read", "file_path", "four.py"),
         ]
     ):
+        payload = {path_key: path}
+        if name == "Write":
+            payload["contents"] = "print('created')\n"
         blocks.append(
             {
                 "type": "tool_use",
                 "id": "call-{}".format(index),
                 "name": name,
-                "input": {path_key: path},
+                "input": payload,
             }
         )
 
@@ -130,11 +133,14 @@ def test_extracts_common_tool_paths_and_operations():
         _line({"type": "assistant", "message": {"content": blocks}})
     )
 
+    changes = [
+        event for event in events if isinstance(event, FileChangeEvent)
+    ]
     assert [
         (event.path, event.operation)
-        for event in events
-        if isinstance(event, FileChangeEvent)
+        for event in changes
     ] == expected
+    assert changes[0].diff == "print('created')\n"
 
 
 def test_normalizes_correlates_deduplicates_and_omits_chain_of_thought():
@@ -220,10 +226,117 @@ def test_normalizes_correlates_deduplicates_and_omits_chain_of_thought():
         "failed",
     ]
     assert "Secret internal reasoning" not in normalized["reasoning_summary"]
+    assert normalized["reasoning_summary"] == "Reasoning occurred; omitted."
     assert normalized["timestamp_range"] == {
         "started_at": datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc),
         "ended_at": datetime(2026, 9, 19, 10, 0, 3, tzinfo=timezone.utc),
     }
+
+
+def test_claude_task_window_keeps_implement_turn_not_setup_or_qa():
+    source = "\n".join(
+        [
+            _line(
+                {
+                    "type": "user",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T10:00:00Z",
+                    "message": {"content": "plan the work"},
+                }
+            ),
+            _line(
+                {
+                    "type": "assistant",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T10:00:01Z",
+                    "message": {"content": "I will start with a plan."},
+                }
+            ),
+            _line(
+                {
+                    "type": "user",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T10:01:00Z",
+                    "message": {"content": "add the health endpoint"},
+                }
+            ),
+            _line(
+                {
+                    "type": "assistant",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T10:01:01Z",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "thinking",
+                                "thinking": "Secret internal reasoning details",
+                            },
+                            {
+                                "type": "text",
+                                "text": "The health-check endpoint is complete.",
+                            },
+                            {
+                                "type": "tool_use",
+                                "id": "edit-1",
+                                "name": "Edit",
+                                "input": {
+                                    "file_path": "src/health.py",
+                                    "old_string": "",
+                                    "new_string": "def health(): return {'ok': True}",
+                                },
+                            },
+                        ]
+                    },
+                }
+            ),
+            _line(
+                {
+                    "type": "user",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T10:01:02Z",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "edit-1",
+                                "content": "updated",
+                            }
+                        ]
+                    },
+                }
+            ),
+            _line(
+                {
+                    "type": "user",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T11:00:00Z",
+                    "message": {"content": "what branch is this?"},
+                }
+            ),
+            _line(
+                {
+                    "type": "assistant",
+                    "sessionId": "s",
+                    "timestamp": "2026-09-19T11:00:01Z",
+                    "message": {"content": "You are on phase-1-test."},
+                }
+            ),
+        ]
+    )
+
+    normalized = normalize_events(parse_claude_jsonl(source))
+
+    assert normalized["start_state"] == "add the health endpoint"
+    assert normalized["end_state"] == "The health-check endpoint is complete."
+    assert normalized["prompts"] == ["add the health endpoint"]
+    assert normalized["files_changed"][0]["path"] == "src/health.py"
+    assert "plan the work" not in normalized["prompts"]
+    assert "You are on phase-1-test." not in normalized["end_state"]
+    assert "Secret internal reasoning" not in normalized["reasoning_summary"]
+    assert normalized["reasoning_summary"] == (
+        "Reasoning occurred; omitted. Approach: "
+        "The health-check endpoint is complete."
+    )
 
 
 @pytest.mark.parametrize(

@@ -66,3 +66,4 @@ def test_shared_fixture_matches_public_contract() -> None:
 
     assert record.session_id == "claude-demo"
     assert record.redacted is True
+    assert record.source_path == "/tmp/claude-demo.jsonl"

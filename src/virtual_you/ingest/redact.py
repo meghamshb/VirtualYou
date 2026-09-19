@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import fields, is_dataclass, replace
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Dict, Set
+from typing import Any, Optional, Sequence, Set
 
 from pydantic import BaseModel
 
@@ -16,12 +16,14 @@ from virtual_you.ingest.errors import IngestionError, IngestionErrorCode
 
 REDACTED = "[REDACTED]"
 
-_SENSITIVE_KEY_PATTERN = (
+_SENSITIVE_LEAF_PATTERN = (
     r"(?:api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|token|"
     r"password|passwd|pwd|secret|client[_-]?secret|private[_-]?key|signature|"
+    r"database[_-]?url|db[_-]?url|"
     r"aws[_-]?access[_-]?key[_-]?id|aws[_-]?secret[_-]?access[_-]?key|"
     r"aws[_-]?session[_-]?token)"
 )
+_SENSITIVE_KEY_PATTERN = r"(?:[A-Za-z][A-Za-z0-9]*_)*" + _SENSITIVE_LEAF_PATTERN
 _SENSITIVE_KEY_RE = re.compile(r"(?i)^{}$".format(_SENSITIVE_KEY_PATTERN))
 _PEM_PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----.*?"
@@ -102,7 +104,22 @@ def _redact_entropy_candidate(text: str, match: re.Match) -> str:
     return match.group(0)
 
 
-def redact_text(text: str) -> str:
+def is_sensitive_key(name: str) -> bool:
+    """Return whether a mapping or dotenv key should have its value redacted."""
+
+    return bool(name) and _SENSITIVE_KEY_RE.fullmatch(name.strip()) is not None
+
+
+def _apply_extra_secrets(text: str, extra_secrets: Sequence[str]) -> str:
+    redacted = text
+    for secret in extra_secrets:
+        if not secret or secret == REDACTED:
+            continue
+        redacted = redacted.replace(secret, REDACTED)
+    return redacted
+
+
+def redact_text(text: str, extra_secrets: Sequence[str] = ()) -> str:
     """Replace secrets in text without returning their values."""
     if not isinstance(text, str):
         raise TypeError("redact_text requires a string")
@@ -110,6 +127,7 @@ def redact_text(text: str) -> str:
     redacted = text
     for _ in range(8):
         previous = redacted
+        redacted = _apply_extra_secrets(redacted, extra_secrets)
         redacted = _PEM_PRIVATE_KEY_RE.sub(REDACTED, redacted)
         redacted = _AUTH_RE.sub(_redact_prefixed, redacted)
         redacted = _INLINE_AUTH_RE.sub(_redact_prefixed, redacted)
@@ -127,13 +145,21 @@ def redact_text(text: str) -> str:
     return redacted
 
 
-def redact_value(value: Any, _seen: Set[int] = None) -> Any:
+def redact_value(
+    value: Any,
+    _seen: Optional[Set[int]] = None,
+    *,
+    extra_secrets: Sequence[str] = (),
+) -> Any:
     """Recursively redact strings while preserving common container/model types."""
     seen = set() if _seen is None else _seen
     if isinstance(value, str):
-        return redact_text(value)
+        return redact_text(value, extra_secrets=extra_secrets)
     if isinstance(value, bytes):
-        return redact_text(value.decode("utf-8", errors="replace")).encode("utf-8")
+        return redact_text(
+            value.decode("utf-8", errors="replace"),
+            extra_secrets=extra_secrets,
+        ).encode("utf-8")
     if value is None or isinstance(
         value,
         (bool, int, float, Enum, date, datetime),
@@ -152,8 +178,12 @@ def redact_value(value: Any, _seen: Set[int] = None) -> Any:
             updates = {
                 name: (
                     REDACTED
-                    if _SENSITIVE_KEY_RE.fullmatch(name)
-                    else redact_value(getattr(value, name), seen)
+                    if is_sensitive_key(name)
+                    else redact_value(
+                        getattr(value, name),
+                        seen,
+                        extra_secrets=extra_secrets,
+                    )
                 )
                 for name in type(value).model_fields
             }
@@ -162,27 +192,37 @@ def redact_value(value: Any, _seen: Set[int] = None) -> Any:
             updates = {
                 field.name: (
                     REDACTED
-                    if _SENSITIVE_KEY_RE.fullmatch(field.name)
-                    else redact_value(getattr(value, field.name), seen)
+                    if is_sensitive_key(field.name)
+                    else redact_value(
+                        getattr(value, field.name),
+                        seen,
+                        extra_secrets=extra_secrets,
+                    )
                 )
                 for field in fields(value)
             }
             return replace(value, **updates)
         if isinstance(value, dict):
             return {
-                redact_value(key, seen): (
+                redact_value(key, seen, extra_secrets=extra_secrets): (
                     REDACTED
-                    if isinstance(key, str) and _SENSITIVE_KEY_RE.fullmatch(key)
-                    else redact_value(item, seen)
+                    if isinstance(key, str) and is_sensitive_key(key)
+                    else redact_value(item, seen, extra_secrets=extra_secrets)
                 )
                 for key, item in value.items()
             }
         if isinstance(value, list):
-            return [redact_value(item, seen) for item in value]
+            return [
+                redact_value(item, seen, extra_secrets=extra_secrets) for item in value
+            ]
         if isinstance(value, tuple):
-            return tuple(redact_value(item, seen) for item in value)
+            return tuple(
+                redact_value(item, seen, extra_secrets=extra_secrets) for item in value
+            )
         if isinstance(value, set):
-            return {redact_value(item, seen) for item in value}
+            return {
+                redact_value(item, seen, extra_secrets=extra_secrets) for item in value
+            }
         raise IngestionError(
             IngestionErrorCode.UNSAFE_OUTPUT,
             "Output contains a value that cannot be safely redacted.",
@@ -207,15 +247,17 @@ def _serialized_text(value: Any) -> str:
         )
 
 
-def contains_secret(value: Any) -> bool:
+def contains_secret(value: Any, extra_secrets: Sequence[str] = ()) -> bool:
     """Return whether a serialized value contains a recognized secret."""
     serialized = _serialized_text(value)
-    return redact_text(serialized) != serialized
+    return redact_text(serialized, extra_secrets=extra_secrets) != serialized
 
 
-def assert_safe_serialized(value: Any) -> None:
+def assert_safe_serialized(
+    value: Any, extra_secrets: Sequence[str] = ()
+) -> None:
     """Raise a stable, secret-safe error if serialized output contains a secret."""
-    if contains_secret(value):
+    if contains_secret(value, extra_secrets=extra_secrets):
         raise IngestionError(
             IngestionErrorCode.UNSAFE_OUTPUT,
             "Serialized output contains sensitive data.",

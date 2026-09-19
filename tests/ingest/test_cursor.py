@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -18,6 +18,7 @@ from virtual_you.ingest.events import (
     ToolResultEvent,
     UserPromptEvent,
 )
+from virtual_you.ingest.normalize import normalize_events
 
 
 def _write_jsonl(path, records):
@@ -87,6 +88,63 @@ def test_parse_modern_cursor_transcript(tmp_path):
     result = next(event for event in events if isinstance(event, ToolResultEvent))
     assert result.call_id == "call-1"
     assert result.content == "done"
+
+
+def test_parse_apply_patch_and_strreplace_file_changes(tmp_path):
+    transcript = tmp_path / "session.jsonl"
+    _write_jsonl(
+        transcript,
+        [
+            {
+                "role": "user",
+                "message": {"role": "user", "content": "Track the edits"},
+            },
+            {
+                "role": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "patch-1",
+                            "name": "ApplyPatch",
+                            "input": (
+                                "*** Begin Patch\n"
+                                "*** Add File: src/app.py\n"
+                                "+print('hi')\n"
+                                "*** Update File: README.md\n"
+                                "+updated\n"
+                                "*** Delete File: obsolete.txt\n"
+                                "*** End Patch\n"
+                            ),
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "edit-1",
+                            "name": "StrReplace",
+                            "input": {
+                                "path": "src/app.py",
+                                "old_string": "print('hi')",
+                                "new_string": "print('hello')",
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    )
+
+    events = parse_cursor_jsonl(transcript)
+    changes = [event for event in events if isinstance(event, FileChangeEvent)]
+
+    assert [(change.operation, change.path) for change in changes] == [
+        ("added", "src/app.py"),
+        ("modified", "README.md"),
+        ("deleted", "obsolete.txt"),
+        ("modified", "src/app.py"),
+    ]
+    assert "print('hi')" in (changes[0].diff or "")
+    assert changes[3].diff == "print('hi')\n---\nprint('hello')"
 
 
 def test_read_state_database_filters_keys_and_returns_events_only(tmp_path):
@@ -191,3 +249,152 @@ def test_unsupported_source_has_stable_error(tmp_path):
 
     assert error.value.code is IngestionErrorCode.UNSUPPORTED_EVENT
     assert str(error.value) == "Unsupported Cursor source."
+
+
+def test_parses_timestamp_and_user_query_markup(tmp_path):
+    transcript = tmp_path / "session.jsonl"
+    _write_jsonl(
+        transcript,
+        [
+            {
+                "role": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "<timestamp>Saturday, Sep 19, 2026, 9:40 AM "
+                                "(UTC+8)</timestamp>\n"
+                                "<user_query>\nAdd a greeting\n</user_query>"
+                            ),
+                        }
+                    ]
+                },
+            }
+        ],
+    )
+
+    events = parse_cursor_jsonl(transcript)
+    prompt = next(event for event in events if isinstance(event, UserPromptEvent))
+    assert prompt.text == "Add a greeting"
+    assert prompt.timestamp == datetime(2026, 9, 19, 1, 40, tzinfo=timezone.utc)
+
+
+def test_turn_ended_pairs_tool_calls_without_ids(tmp_path):
+    transcript = tmp_path / "session.jsonl"
+    _write_jsonl(
+        transcript,
+        [
+            {
+                "role": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Write",
+                            "input": {
+                                "path": "src/health.py",
+                                "contents": "ok = True",
+                            },
+                        },
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"path": "README.md"},
+                        },
+                    ]
+                },
+            },
+            {"type": "turn_ended", "status": "success"},
+        ],
+    )
+
+    events = parse_cursor_jsonl(transcript)
+    calls = [event for event in events if isinstance(event, ToolCallEvent)]
+    results = [event for event in events if isinstance(event, ToolResultEvent)]
+
+    assert [call.call_id for call in calls] == [
+        "cursor-tool-1-Write-0",
+        "cursor-tool-1-Read-1",
+    ]
+    assert [result.call_id for result in results] == [
+        "cursor-tool-1-Write-0",
+        "cursor-tool-1-Read-1",
+    ]
+    assert all(not result.is_error for result in results)
+    normalized = normalize_events(events, source="cursor")
+    assert [call["status"] for call in normalized["tool_calls"]] == [
+        "succeeded",
+        "succeeded",
+    ]
+
+
+def test_cursor_task_window_uses_last_completed_work(tmp_path):
+    transcript = tmp_path / "session.jsonl"
+    _write_jsonl(
+        transcript,
+        [
+            {
+                "role": "user",
+                "message": {
+                    "content": (
+                        "<timestamp>Saturday, Sep 19, 2026, 9:40 AM (UTC+8)</timestamp>"
+                        "<user_query>plan the work</user_query>"
+                    )
+                },
+            },
+            {
+                "role": "assistant",
+                "message": {"content": "I will start with a plan."},
+            },
+            {
+                "role": "user",
+                "message": {
+                    "content": (
+                        "<timestamp>Saturday, Sep 19, 2026, 10:00 AM (UTC+8)</timestamp>"
+                        "<user_query>add the health endpoint</user_query>"
+                    )
+                },
+            },
+            {
+                "role": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "The health-check endpoint is complete."},
+                        {
+                            "type": "tool_use",
+                            "name": "Write",
+                            "input": {
+                                "path": "src/health.py",
+                                "contents": "def health(): return {'ok': True}",
+                            },
+                        },
+                    ]
+                },
+            },
+            {"type": "turn_ended", "status": "success"},
+            {
+                "role": "user",
+                "message": {
+                    "content": (
+                        "<timestamp>Saturday, Sep 19, 2026, 11:00 AM (UTC+8)</timestamp>"
+                        "<user_query>what branch is this?</user_query>"
+                    )
+                },
+            },
+            {
+                "role": "assistant",
+                "message": {"content": "You are on phase-1-test."},
+            },
+        ],
+    )
+
+    normalized = normalize_events(parse_cursor_jsonl(transcript), source="cursor")
+    assert normalized["start_state"] == "add the health endpoint"
+    assert normalized["end_state"] == "The health-check endpoint is complete."
+    assert normalized["prompts"] == ["add the health endpoint"]
+    assert normalized["files_changed"][0]["path"] == "src/health.py"
+    assert "You are on phase-1-test." not in normalized["end_state"]
+    assert normalized["reasoning_summary"] == (
+        "The health-check endpoint is complete."
+    )
