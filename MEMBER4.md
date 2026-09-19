@@ -139,10 +139,12 @@ and realtime voice remain follow-up work, not completed features.
 
 See [docs/STATUS.md](docs/STATUS.md) for exact current checks. Tests use synthetic
 activity and fake Slack/cloud transports. A real local Whisper transcription and
-a desktop/mobile browser voice → review → draft flow were exercised. Live
-ElevenLabs transcription, Slack authorization/file download/mention delivery,
-real-text-model factual/style quality and continuous host uptime still need
-acceptance in the team's configured environment. Quote validation does not prove
+a desktop/mobile browser voice → review → draft flow were exercised. A live
+ElevenLabs Scribe v2 request also transcribed the 8.5-second synthetic memo
+successfully (HTTP 200, 1.15 seconds for one request). Account balance was not
+queried. Representative recordings, Slack authorization/file download/mention
+delivery, real-text-model factual/style quality and continuous host uptime still
+need acceptance in the team's configured environment. Quote validation does not prove
 semantic entailment; the owner must review factual claims.
 
 References: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),

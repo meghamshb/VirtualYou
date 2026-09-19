@@ -46,6 +46,12 @@ root Dockerfile remain unchanged from phase 1.1 `ab3c90f`.
 - Real local `faster-whisper` small/int8 transcription of an 8.5-second synthetic
   English memo preserved both its blocker and “deadline has not been confirmed”.
   First run was 26.4 seconds including model setup; this is one measurement.
+- Live ElevenLabs Scribe v2: **HTTP 200** on the same 8.5-second synthetic
+  English memo, **1.15 seconds** for this one request. The returned transcript
+  preserved the blocker and unconfirmed deadline. This verifies this key's
+  transcription access at test time, not account balance or a latency guarantee.
+  Both local entrypoint environments now select ElevenLabs; keys stay in
+  ignored mode-600 files and are not included in the commit.
 - Browser: `http://127.0.0.1:8127`, installed Chrome through Playwright; Browser
   plugin unavailable, bundled Playwright browser absent. Desktop **1280×900**
   and mobile **390×844**. Correct URL/title, meaningful content, no error
@@ -60,11 +66,11 @@ root Dockerfile remain unchanged from phase 1.1 `ab3c90f`.
 
 ## Remaining live acceptance and limitations
 
-Configure a valid local ElevenLabs key with Speech to Text permission and check
-account allowance before selecting it; cloud request/error shapes are mocked,
-not evidence of a live ElevenLabs transcription. Reauthorize the Slack app's
-new `files:read`, then test an actual owner memo and recipient mention through
-review to one approved destination. No real Slack/Discord messages were sent
+Live ElevenLabs transcription now passes the synthetic smoke test. Remaining
+speech acceptance is representative user recordings, accent/noise accuracy and
+account allowance monitoring; the balance was not queried. Reauthorize the
+Slack app's new `files:read`, then test an actual owner memo and recipient mention
+through review to one approved destination. No real Slack/Discord messages were sent
 in this implementation run. Persona/factual quality still needs the selected
 live text model and human acceptance from [MEMBER2_ACCEPTANCE.md](../MEMBER2_ACCEPTANCE.md).
 
