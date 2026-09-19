@@ -185,3 +185,21 @@ def test_real_git_commit_becomes_redacted_report_evidence(settings, tmp_path):
     assert "orchard-private-value" not in records[0].model_dump_json()
     assert ".env" not in records[0].diffs[0]
     assert "not verified" in records[0].end_state
+
+
+def test_git_history_keeps_distinct_ids_through_redaction(tmp_path):
+    from virtual_you.ingest.git import collect_commits
+    root = tmp_path / "repo"
+    root.mkdir()
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    git("init")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "Test")
+    for i in range(8):
+        (root / "change.py").write_text(f"version = {i}\n")
+        git("add", "change.py")
+        git("commit", "-m", f"Change {i}")
+    records = collect_commits(root)
+    assert len(records) == len({r.session_id for r in records}) == 8
+    assert all("REDACTED" not in r.session_id for r in records)

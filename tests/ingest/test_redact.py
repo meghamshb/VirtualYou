@@ -255,3 +255,12 @@ def test_recursive_cycle_fails_closed_without_values_in_error() -> None:
 
     assert captured.value.code is IngestionErrorCode.UNSAFE_OUTPUT
     assert "secret" not in str(captured.value).lower()
+
+
+def test_json_escaped_redacted_patch_assignments_are_safe():
+    payload = {'diffs': ['+api_key="ordinary-sensitive-value"\n+password=hidden']}
+    assert contains_secret(payload)
+    clean = redact_value(payload)
+    assert 'ordinary-sensitive-value' not in str(clean)
+    assert not contains_secret(clean)
+    assert_safe_serialized(clean)

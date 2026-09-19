@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from virtual_you.contracts.activity import SourceKind
+from virtual_you.ingest.errors import IngestionError
 from virtual_you.ingest.git import collect_commits
 from virtual_you.ingest.service import IngestionService
 from virtual_you.ingest.store import ActivityRecordRepository
@@ -121,6 +122,6 @@ class Collector:
                         errors.append(
                             {"source": source.source.value, "code": "source_ingestion_failed"}
                         )
-            except (OSError, ValueError):
+            except (OSError, ValueError, IngestionError):
                 errors.append({"source": source.source.value, "code": "source_unavailable"})
         return {"enabled": True, "changed": changed, "errors": errors[:20]}

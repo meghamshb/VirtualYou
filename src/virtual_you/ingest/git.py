@@ -47,7 +47,7 @@ def collect_commits(workspace: Path, limit=20):
                 + "\n[Patch truncated at 500000 characters; remaining changes not indexed.]"
             )
         payload = {
-            "session_id": "git-" + hashlib.sha256((str(root) + sha).encode()).hexdigest(),
+            "session_id": hashlib.sha256((str(root) + sha).encode()).hexdigest(),
             "source": "git",
             "source_path": str(root),
             "redacted": True,

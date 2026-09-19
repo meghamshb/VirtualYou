@@ -249,8 +249,15 @@ def _serialized_text(value: Any) -> str:
 
 def contains_secret(value: Any, extra_secrets: Sequence[str] = ()) -> bool:
     """Return whether a serialized value contains a recognized secret."""
-    serialized = _serialized_text(value)
-    return redact_text(serialized, extra_secrets=extra_secrets) != serialized
+    # Inspect logical field values, before JSON escaping. Running assignment
+    # regexes on JSON-escaped patch text misreads escaped quotes around an
+    # already-redacted value as a new credential and rejects safe source code.
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    sanitized = redact_value(value, extra_secrets=extra_secrets)
+    return _serialized_text(sanitized) != _serialized_text(value)
 
 
 def assert_safe_serialized(
