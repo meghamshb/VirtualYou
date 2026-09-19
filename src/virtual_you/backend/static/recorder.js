@@ -6,6 +6,7 @@ class VoiceMemoRecorder {
     this.onChange = onChange;
     this.phase = "idle";
     this.locked = true;
+    this.connected = false;
     this.generation = 0;
     this.clip = null;
     this.stream = null;
@@ -38,10 +39,10 @@ class VoiceMemoRecorder {
     this.el("voice-discard").disabled = this.locked && !this.active;
     this.el("voice-discard").textContent = this.active ? "Cancel recording" : "Discard recording";
     this.el("voice-preview").hidden = !this.clip;
-    this.el("voice-transcribe").disabled = this.locked || this.active || !this.clip;
+    this.el("voice-transcribe").disabled = this.locked || !this.connected || this.active || !this.clip;
   }
 
-  setLocked(locked) { this.locked = locked; this.render(); }
+  setLocked(locked, connected) { this.locked = locked; this.connected = connected; this.render(); }
   changed() { this.render(); this.onChange(); }
 
   releaseMicrophone() {

@@ -26,9 +26,10 @@ function buttons() {
   $("draft-text").disabled = busy;
   $("draft-text").readOnly = !editable;
   $("unsaved").textContent = dirty() ? "Unsaved edits. Save them before approving or delivering." : "";
-  recorder.setLocked(busy || !connected);
-  $("voice-file").disabled = busy || recorder.active || !connected;
+  recorder.setLocked(busy, connected);
+  $("voice-file").disabled = busy || recorder.active;
   $("voice-upload").querySelector("button").disabled = busy || recorder.active || !connected;
+  $("voice-connection").hidden = connected;
 }
 async function run(action) {
   if (busy) return;

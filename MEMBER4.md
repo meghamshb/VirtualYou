@@ -54,8 +54,10 @@ persistent model cache for local Whisper if repeated weight downloads are unwant
 
 ## Owner review flow
 
-1. Open the backend review page and connect with its owner key. Create or choose
-   a recipient profile first. `virtual-you-server seed-demo` can supply synthetic
+1. Open the backend review page. Recording, playback and file selection work before
+   signing in; **Connect to the backend** with its owner key to enable transcription.
+   The audio stays available while you connect. Create or choose a recipient
+   profile before drafting. `virtual-you-server seed-demo` can supply synthetic
    personas and activity for a local demo; delivery defaults to simulation.
 2. Press **Record**, allow microphone access, speak, then **Stop recording**.
    Preview the audio and select **Transcribe this memo**. Capture stays in tab

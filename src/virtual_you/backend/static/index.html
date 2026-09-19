@@ -33,7 +33,7 @@
     <p id="voice-processing">Connect to see where transcription runs.</p>
     <div id="voice-recorder" class="recorder" role="group" aria-label="Record a voice memo">
       <div class="recorder-heading"><strong>Record a memo</strong><span id="voice-timer" role="timer" aria-label="Recording duration">0:00</span></div>
-      <p id="voice-status" role="status">Connect, then record a short update.</p>
+      <p id="voice-status" role="status">Ready. Press Record and allow microphone access.</p>
       <button id="voice-start" type="button" disabled>Record</button>
       <button id="voice-stop" type="button" hidden>Stop recording</button>
       <button id="voice-discard" type="button" hidden>Discard recording</button>
@@ -43,6 +43,7 @@
       </div>
       <small>Microphone audio stays in this tab until you choose Transcribe. Recording stops just before 3 minutes, or when you leave this tab.</small>
     </div>
+    <p id="voice-connection"><a href="#login">Connect to the backend</a> to enable transcription. You can record, preview, or choose a file first.</p>
     <form id="voice-upload"><label>Or upload an audio file (up to 3 minutes / 8 MiB)
       <input id="voice-file" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav,.webm" required></label>
       <button>Transcribe recording</button></form>

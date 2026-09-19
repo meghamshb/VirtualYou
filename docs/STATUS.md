@@ -99,6 +99,25 @@ root Dockerfile remain unchanged from phase 1.1 `ab3c90f`.
 - Browser scripts/results/screenshots and synthetic audio remain outside Git under
   `/tmp/makenomistake-recorder-qa/`. No frontend dependency was added.
 
+### Record button connection fix
+
+The first recorder UI unnecessarily disabled local capture until backend login.
+A page refresh clears that in-memory login, leaving Record disabled. Capture,
+playback, discard and file selection now work before login; only transcription
+requires a successful connection. An adjacent link explains this and leads to
+the login form. Connecting preserves the recorded clip or chosen file.
+
+Verified the reported state and the enabled Record button after the fix in Leo's
+actual in-app browser at port 8000, with no browser console errors. Isolated Chrome
+QA at port 8128 (1280×900 and 390×844) exercised pre-login recording/playback,
+zero automatic uploads, clip preservation through login, authenticated explicit
+transcription, refresh, file-selection persistence and unsupported-browser
+fallback. Synthetic microphone input and a mocked transcription response were
+used; no real microphone audio or new provider call was used for this regression.
+Desktop/mobile screenshots were inspected with no horizontal overflow. JavaScript
+syntax and whitespace checks pass. The Python backend is unchanged in this fix;
+the 220/60 regression totals above are from the preceding recorder implementation.
+
 ## Remaining live acceptance and limitations
 
 Live ElevenLabs transcription now passes the synthetic smoke test. Remaining
