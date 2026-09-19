@@ -21,7 +21,7 @@ GROUP_STYLES = {
     "formal": "Clear, concise professional sentences for a group. No private greetings or familiarity.",
     "bullets": "Brief factual bullets for a group. Preserve uncertainty and distinguish recorded from verified outcomes.",
 }
-SOURCES = {"claude", "cursor", "codex", "git", "voice"}
+SOURCES = {"claude", "cursor", "codex", "git", "voice", "github", "jira", "drive"}
 
 AUTO_REVIEW_SYSTEM = (
     "You are a factual-claim verifier, not a product approval reviewer. Return JSON with eligible (boolean) and reason (string). "
