@@ -46,6 +46,8 @@ class Coordinator(Member4, Experience):
         backend.voice.validate_confirmation = self.bind_voice_confirmation
         backend.voice.check_upload = self.require_voice_enabled
         backend.voice_targets = self.voice_targets
+        from .groups import GroupConversations
+        self.groups = GroupConversations(self)
         self.dm_replies = None
         watched = os.getenv("VIRTUAL_YOU_DM_WATCH_RECIPIENT", "")
         if watched == '*':
@@ -136,7 +138,8 @@ class Coordinator(Member4, Experience):
             status=self.status_summary(),
             error=self.state.latest_error(),
         )
-        extra = self.member4_blocks()
+        from .group_views import group_blocks
+        extra = self.member4_blocks() + group_blocks(self.groups)
         view["blocks"] = view["blocks"][:100 - len(extra)] + extra
         return view
 
@@ -329,6 +332,12 @@ class Coordinator(Member4, Experience):
             if job["kind"] == "dm_decision" and self.dm_replies:
                 await self.dm_replies.decide(job["payload"]["id"], job["payload"]["approve"],
                     **{k: v for k, v in job["payload"].items() if k in {"edited_text", "edit_kind", "expected_revision"}})
+            elif job["kind"] == "group_question":
+                await self.groups.prepare(job["payload"]["id"])
+            elif job["kind"] == "group_send":
+                await self.groups.send(job["payload"]["id"], actor=self.config.owner_id)
+            elif job["kind"] == "group_configure":
+                await asyncio.to_thread(self.groups.configure, self.config.owner_id, **job["payload"])
             elif job["kind"] == "persona":
                 await self.create_persona(job)
             elif job["kind"] == "draft":

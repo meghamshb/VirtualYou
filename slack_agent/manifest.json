@@ -22,6 +22,12 @@
         "type": "message",
         "callback_id": "vy_reply",
         "description": "Prepare an approved project update for a selected colleague"
+      },
+      {
+        "name": "Ask a VirtualYou",
+        "type": "message",
+        "callback_id": "vy_group_ask",
+        "description": "Ask a specific owner about approved projects in this conversation"
       }
     ]
   },
@@ -34,7 +40,13 @@
         "im:read",
         "im:history",
         "users:read",
-        "chat:write"
+        "chat:write",
+        "channels:read",
+        "channels:history",
+        "groups:read",
+        "groups:history",
+        "mpim:read",
+        "mpim:history"
       ],
       "bot": [
         "app_mentions:read",

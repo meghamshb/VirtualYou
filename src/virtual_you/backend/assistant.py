@@ -115,7 +115,16 @@ class AssistantService:
         return None
 
     async def prepare(
-        self, request_id, *, question, recipient_id, scope, style, context=None, blocked_reason=None
+        self,
+        request_id,
+        *,
+        question,
+        recipient_id,
+        scope,
+        style,
+        context=None,
+        blocked_reason=None,
+        thread_context=None,
     ):
         validate_request_id(request_id)
         question = redact_text(question)[:4000]
@@ -173,7 +182,10 @@ class AssistantService:
                 return self.escalate(value, reason)
             try:
                 result = await self.workflow.engine.reply(
-                    question=question, scope=scope, style=style
+                    question=question,
+                    scope=scope,
+                    style=style,
+                    **({"thread_context": thread_context} if thread_context else {}),
                 )
             except ServiceError as error:
                 return self.escalate(value, error.code)

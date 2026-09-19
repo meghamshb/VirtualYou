@@ -279,6 +279,10 @@ def register(app, coordinator=None):
     # Explicitly acknowledge unsupported mentions without publishing a response as the owner.
     @app.event("app_mention")
     def mention(event, body):
+        # Group assistance is exclusively the explicit message shortcut. Never
+        # route a channel mention through a participant's private-DM persona.
+        if event.get("channel", "").startswith(("C", "G")):
+            return
         coordinator.receive_member4(event, body, mention=True)
 
     from .setup_listeners import register_setup
@@ -286,4 +290,6 @@ def register(app, coordinator=None):
     register_setup(app, coordinator, event_key)
     from .member4 import register_member4
     register_member4(app, coordinator, event_key)
+    from .group_views import register_groups
+    register_groups(app, coordinator, event_key)
     return coordinator
