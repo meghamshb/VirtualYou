@@ -189,10 +189,13 @@ def test_real_git_commit_becomes_redacted_report_evidence(settings, tmp_path):
 
 def test_git_history_keeps_distinct_ids_through_redaction(tmp_path):
     from virtual_you.ingest.git import collect_commits
+
     root = tmp_path / "repo"
     root.mkdir()
+
     def git(*args):
         return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
     git("init")
     git("config", "user.email", "test@example.com")
     git("config", "user.name", "Test")

@@ -13,7 +13,6 @@ from pydantic import BaseModel
 
 from virtual_you.ingest.errors import IngestionError, IngestionErrorCode
 
-
 REDACTED = "[REDACTED]"
 
 _SENSITIVE_LEAF_PATTERN = (
