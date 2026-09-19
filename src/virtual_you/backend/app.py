@@ -21,15 +21,19 @@ from virtual_you.backend.drafting import DraftEngine
 from virtual_you.backend.errors import ServiceError
 from virtual_you.backend.heartbeat import Heartbeat
 from virtual_you.backend.persona import PersonaService
+from virtual_you.backend.prompts import assemble_activity_prompt
 from virtual_you.backend.providers import make_provider
 from virtual_you.backend.retrieval import RetrievalService
 from virtual_you.backend.store import Store
 from virtual_you.backend.workflow import Workflow
 from virtual_you.contracts.reporting import (
     ApprovalDecision,
+    AssembledPrompt,
     DraftRequest,
     EditRequest,
+    PersonaProfile,
     PersonaSeed,
+    PromptRequest,
     ReconcileDelivery,
     RetrievalRequest,
     RevisionRequest,
@@ -237,6 +241,13 @@ def create_app(settings=None, *, provider=None, transport=None):
     @api.get("/personas/{recipient_id}/soul", response_class=PlainTextResponse)
     def soul(recipient_id: str):
         return app.state.store.get_persona(recipient_id)["soul_md"]
+
+    @api.post("/prompts/assemble", response_model=AssembledPrompt)
+    def assemble(request: PromptRequest):
+        profile = PersonaProfile.model_validate(app.state.store.get_persona(request.recipient_id))
+        return assemble_activity_prompt(
+            profile, request.activity, recipient_id=request.recipient_id, question=request.question
+        )
 
     @api.get("/drafts")
     def drafts():

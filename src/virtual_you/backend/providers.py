@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 from typing import Protocol
 
 import httpx
 
 from virtual_you.backend.errors import ServiceError
+from virtual_you.backend.style import extract_style
 from virtual_you.contracts.reporting import SECTION_TITLES
 
 UNKNOWN = "Not recorded in the selected activity."
@@ -75,23 +75,7 @@ class DemoProvider:
     async def generate(self, *, task, system, user, schema):
         data = json.loads(user)
         if task == "persona":
-            messages = data["messages"]
-            text = " ".join(messages)
-            formal = bool(re.search(r"\b(dear|regards|sincerely)\b", text, re.I))
-            casual = bool(re.search(r"\b(hey|hiya|cheers|yep)\b", text, re.I))
-            words = re.findall(r"\b[a-zA-Z]{4,}\b", text.lower())
-            return {
-                "tone": "Measured and professional" if formal else "Friendly and direct",
-                "formality": "formal" if formal else ("casual" if casual else "neutral"),
-                "greeting": "Hello," if formal else ("Hey," if casual else "Hi,"),
-                "sign_off": "Regards" if formal else ("Cheers" if casual else "Thanks"),
-                "sentence_style": f"Around {round(len(text.split()) / len(messages))} words per example; concise updates.",
-                "vocabulary": [word for word, _ in Counter(words).most_common(8)],
-                "punctuation": "Occasional exclamation marks" if "!" in text else "Mostly periods",
-                "emoji": "Occasional emoji"
-                if re.search(r"[\U0001F300-\U0001FAFF]", text)
-                else "No emoji observed",
-            }
+            return extract_style(data["messages"])
         evidence = data["evidence"]
         report = {key: {"text": UNKNOWN, "citations": []} for key in SECTION_TITLES}
 

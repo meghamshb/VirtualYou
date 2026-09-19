@@ -146,14 +146,18 @@ Separate recipient IDs produce separate profiles.
 
 `soul.md` files and SQLite state are ignored by Git. The structured profile in
 SQLite is canonical; Markdown is a local export, available via the `/soul`
-endpoint. Editing the exported Markdown directly does not update the profile.
+endpoint. New exports include a versioned JSON block for standalone prompt
+assembly. Editing an export does not update the database; the local assembler
+reads only that structured block. See [MEMBER2.md](MEMBER2.md) for the file
+format, CLI, synthetic examples, and Member 3 handoff.
 
 The assembler separates style examples from activity evidence and treats both
 as untrusted data. Examples are not current work facts. Model-generated drafts
 are never automatically delivered. Citation checks reject missing IDs, invented
 quotes, and invented links, but cannot prove that a paraphrase logically follows
-from its quote. Human review remains necessary, including for claims in a
-greeting or sign-off. The extractive demo keeps factual report sections identical
+from its quote. Human review remains necessary. Greetings and sign-offs are
+restricted to generic courtesy phrases, so they cannot directly inject an old
+project claim outside the cited report. The extractive demo keeps factual report sections identical
 across personas; generative providers can vary wording and need review.
 
 ## Member 3: drafts, approval, and delivery
@@ -224,6 +228,7 @@ single-owner prototype, not a multi-tenant permission model.
 | `POST /api/personas` | Create/update recipient-specific style |
 | `GET /api/personas` | List profiles |
 | `GET /api/personas/{id}/soul` | Plain-text style export |
+| `POST /api/prompts/assemble` | Recipient plus explicitly redacted `ActivityRecord` → prompt; no model call or delivery |
 | `POST /api/drafts` | Retrieve evidence and generate a pending report |
 | `GET /api/drafts` | Latest 50 drafts |
 | `GET /api/drafts/{id}` | Current revision and evidence snapshot |

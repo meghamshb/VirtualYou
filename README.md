@@ -5,6 +5,9 @@ activity with a refresh heartbeat, drafting, approval, Slack/Discord delivery,
 and a minimal review page. See **[BACKEND.md](BACKEND.md)** for setup, API
 contracts, Member 1/4 handoffs, deployment, and known limits.
 
+Member 2's local persona tools, portable `soul.md`, prompt API, and two-recipient
+acceptance demo are documented in **[MEMBER2.md](MEMBER2.md)**.
+
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -e '.[backend,dev]'
