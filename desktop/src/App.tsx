@@ -7,7 +7,6 @@ import {
   Activity,
   Stethoscope,
   Settings as SettingsIcon,
-  Diamond,
   UserRound,
   ArrowRight,
   X,
@@ -241,7 +240,7 @@ export default function App() {
             setView("setup");
           }}
         >
-          <Diamond size={28} strokeWidth={1.8} />
+          <img src="./favicon.svg" width="32" height="32" alt="" />
           <span>VirtualYou</span>
         </a>
         <nav aria-label="Workspace navigation">
@@ -365,7 +364,7 @@ export default function App() {
           onClose={() => act({ type: "welcome" })}
         >
           <div className="welcome-mark">
-            <Diamond size={34} />
+            <img src="./favicon.svg" width="40" height="40" alt="" />
           </div>
           <p className="modal-lead">
             Your work, in your voice.

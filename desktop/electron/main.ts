@@ -1,4 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  safeStorage,
+  nativeImage,
+} from "electron";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,6 +55,11 @@ async function disconnect() {
 }
 async function main() {
   await app.whenReady();
+  // Vite copies the supplied launch-video logo into dist for both local and packaged builds.
+  const icon = nativeImage.createFromPath(
+    path.join(app.getAppPath(), "dist/virtualyou-logo.png"),
+  );
+  if (!icon.isEmpty()) app.dock?.setIcon(icon);
   await mkdir(app.getPath("userData"), { recursive: true, mode: 0o700 });
   let serviceUrl = "";
   try {
@@ -191,6 +203,7 @@ async function main() {
     minWidth: 780,
     minHeight: 620,
     title: "VirtualYou",
+    icon,
     backgroundColor: "#ffffff",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

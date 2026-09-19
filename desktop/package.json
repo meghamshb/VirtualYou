@@ -39,7 +39,8 @@
       "target": [
         "dmg"
       ],
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "icon": "assets/icon.icns"
     },
     "asar": true,
     "extraResources": [

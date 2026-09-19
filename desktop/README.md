@@ -80,3 +80,11 @@ progress survives. It never attaches to the running Slack service.
 For an unsigned local package, use
 `CSC_IDENTITY_AUTO_DISCOVERY=false npm run package:mac`. This avoids automatically
 selecting a developer certificate. Signing/notarization is a release task.
+
+## App icon
+
+The Dock/window icon and favicon use the supplied VirtualYou launch-video logo.
+`public/virtualyou-logo.png` is the original transparent 2048px export;
+`assets/icon.icns` contains the macOS sizes generated from that export. Both the
+local macOS package and customer release configuration use this icon. No video
+project or machine-specific asset path is needed at runtime.
