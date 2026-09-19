@@ -34,7 +34,7 @@ describe("existing backend boundary", () => {
           : [
               {
                 id: "draft-1",
-                recipient_id: "colleague",
+                request: { recipient_id: "colleague" },
                 text: "Recorded change.",
                 status: "pending",
                 revision: 1,
@@ -56,6 +56,7 @@ describe("existing backend boundary", () => {
     );
     const state = await client.snapshot();
     expect(state.mode).toBe("local");
+    expect(state.drafts[0].recipient).toBe("colleague");
     expect(state.drafts[0].target).toBe("slack: D123");
     expect(JSON.stringify(state)).not.toContain("test-secret");
     expect(

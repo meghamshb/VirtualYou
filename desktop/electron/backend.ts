@@ -60,7 +60,7 @@ export class LocalBackend {
         z
           .object({
             id: z.string(),
-            recipient_id: z.string(),
+            request: z.object({ recipient_id: z.string() }).passthrough(),
             text: z.string(),
             status: z.string(),
             revision: z.number(),
@@ -84,7 +84,7 @@ export class LocalBackend {
       .parse(await this.request("/api/drafts"));
     const drafts: Draft[] = raw.map((d) => ({
       id: d.id,
-      recipient: d.recipient_id,
+      recipient: d.request.recipient_id,
       text: d.text,
       status: d.status,
       revision: d.revision,
