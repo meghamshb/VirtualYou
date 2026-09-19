@@ -169,3 +169,7 @@ Persona generation, LLM drafting, approval, and Slack/Discord delivery are
 implemented separately in `virtual_you.backend`; they consume this ingestion
 boundary. Speech-to-text, standing chatbot listeners, and MCP enrichment remain
 outside the ingestion/backend work described here.
+
+## Slack-native headless workflow
+
+The existing Slack agent is integrated under [slack_agent/](slack_agent/WORKFLOW.md). Select a person once in Slack Home to build a persona from your own DM history, automatically prepare activity-based drafts, and review them with Slack buttons and modals. One-time user OAuth is required for private DM history. The Slack process runs the backend heartbeat in-process; no dashboard is required.

@@ -269,3 +269,19 @@ def test_oversized_discord_message_fails_without_network_call(settings, record):
         assert result["status"] == "delivery_failed"
         assert result["receipt"]["error_code"] == "discord_message_too_long"
         assert calls == []
+
+
+def test_resumable_draft_id_cannot_overwrite_existing_draft(client, record):
+    from virtual_you.backend.errors import ServiceError
+    from virtual_you.contracts.reporting import DraftRequest
+
+    prepare(client, record)
+    request = DraftRequest(
+        recipient_id="manager", destination={"platform": "slack", "target": "demo-channel"}
+    )
+    workflow = client.app.state.workflow
+    first = asyncio.run(workflow.create(request, draft_id="persisted-job-id"))
+    with pytest.raises(ServiceError) as caught:
+        asyncio.run(workflow.create(request, draft_id="persisted-job-id"))
+    assert caught.value.code == "draft_already_exists"
+    assert client.app.state.store.get_draft(first["id"]) == first

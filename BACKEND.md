@@ -41,7 +41,9 @@ Authenticated ActivityRecord POST ─┘              │
                                    explicit delivery → Slack / Discord
 ```
 
-The heartbeat only refreshes evidence. It never generates, approves, edits,
+The core ingestion heartbeat only refreshes evidence. The optional [Slack headless worker](slack_agent/WORKFLOW.md) adds a separate debounced automatic-draft scheduler; it never auto-approves or auto-sends.
+
+The core heartbeat only refreshes evidence. It never generates, approves, edits,
 regenerates, or sends a report. Existing drafts keep their original evidence
 snapshot; regeneration explicitly retrieves fresh evidence.
 

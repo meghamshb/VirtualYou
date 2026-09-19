@@ -33,14 +33,14 @@ class Workflow:
                 409,
             )
 
-    async def create(self, request: DraftRequest):
+    async def create(self, request: DraftRequest, *, draft_id=None):
         self.gateway.validate_destination(request.destination.model_dump())
         generated = await self.engine.generate(request)
         request_data = request.model_dump(mode="json")
         request_data["question"] = redact_text(request.question) if request.question else None
         request_data["retrieval"]["query"] = redact_text(request.retrieval.query)
         draft = {
-            "id": str(uuid4()),
+            "id": draft_id or str(uuid4()),
             "revision": 1,
             "status": "pending",
             "created_at": utcnow(),
@@ -52,6 +52,8 @@ class Workflow:
             **generated,
         }
         with self.store.connection(write=True) as db:
+            if db.execute("SELECT 1 FROM drafts WHERE id=?", (draft["id"],)).fetchone():
+                raise ServiceError("draft_already_exists", "This draft request was already saved.", 409)
             self.store.save_draft(db, draft, "created")
         return draft
 
