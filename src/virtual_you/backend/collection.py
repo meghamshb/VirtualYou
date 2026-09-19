@@ -88,7 +88,13 @@ class Collector:
                         if root.is_dir() and not path.resolve().is_relative_to(root):
                             continue
                         stat = path.stat()
-                        if stat.st_size > 50_000_000:
+                        # Codex streams bounded public chunks and skips embedded images.
+                        # Long interactive sessions commonly exceed the whole-file
+                        # parsers' 50 MB limit; keep a separate bounded allowance.
+                        size_limit = (
+                            500_000_000 if source.source == SourceKind.CODEX else 50_000_000
+                        )
+                        if stat.st_size > size_limit:
                             raise ValueError()
                         # SQLite WAL changes also invalidate the source fingerprint.
                         wal = Path(str(path) + "-wal")

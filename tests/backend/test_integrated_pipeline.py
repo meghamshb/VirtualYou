@@ -247,7 +247,10 @@ def test_invalid_source_gets_one_repair_and_never_bypasses_validation(settings, 
     assert "invalid_citation" in calls[1]["validation_feedback"]
 
 
-def test_codex_collector_publishes_bounded_chunks_and_skips_unchanged(settings, tmp_path):
+@pytest.mark.parametrize("reported_size", [None, 50_000_001, 500_000_001])
+def test_codex_collector_publishes_bounded_chunks_and_skips_unchanged(
+    settings, tmp_path, monkeypatch, reported_size
+):
     settings.prepare()
     source = tmp_path / "session.jsonl"
     rows = [
@@ -281,8 +284,28 @@ def test_codex_collector_publishes_bounded_chunks_and_skips_unchanged(settings, 
         )
     )
     settings.ingestion_config = config
+    if reported_size is not None:
+        original_stat = Path.stat
+
+        class SourceStat:
+            def __init__(self, actual):
+                self.actual = actual
+                self.st_size = reported_size
+
+            def __getattr__(self, key):
+                return getattr(self.actual, key)
+
+        def stat(path, *args, **kwargs):
+            actual = original_stat(path, *args, **kwargs)
+            return SourceStat(actual) if path == source else actual
+
+        monkeypatch.setattr(Path, "stat", stat)
     collector = Collector(settings)
     first = collector.collect()
+    if reported_size == 500_000_001:
+        assert first["changed"] == 0
+        assert first["errors"] == [{"source": "codex", "code": "source_ingestion_failed"}]
+        return
     assert first["changed"] == 2 and first["errors"] == []
     assert collector.collect()["changed"] == 0
     records = [json.loads(p.read_text()) for p in settings.activity_dir.rglob("activity-*.json")]
