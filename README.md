@@ -1,6 +1,7 @@
 > **Integration status:** PR #4 merged the Jira/Drive, conversation-context, Member 2
 > and Member 4 integration into `develop`. The follow-up on `leo-dev` restores
-> approved clarification replies and fixes conversation ordering. See
+> approved clarification replies, fixes conversation ordering, and restores
+> Electron with review fixes from live testing. See
 > [integration audit and demo status](docs/LEO_INTEGRATION.md) for verification and live-test limits.
 
 > **Integrated development branch:** see [the complete pipeline and branch comparison](docs/DEVELOP_INTEGRATION.md).

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { bridge } from "./bridge";
 import { freshWorkspace } from "../shared/preview";
+import { approvalCopy, reviewUnavailable } from "../shared/review";
 import type {
   Workspace,
   View,
@@ -177,6 +178,7 @@ export default function App() {
           <Approvals
             state={state}
             onSample={() => act({ type: "sample" })}
+            onRefresh={() => void run(() => bridge.snapshot())}
             onDecision={(draft, approve) =>
               setDialog({ kind: "decision", draft, approve })
             }
@@ -305,6 +307,16 @@ export default function App() {
               </button>
             </div>
           )}
+          {reviewUnavailable(state) && (
+            <div className="notice error" role="alert">
+              <Info size={18} />
+              <span>
+                The backend is offline or not ready. Displayed drafts may be
+                outdated, so decisions are disabled. Use Refresh drafts in
+                Approvals after the backend recovers.
+              </span>
+            </div>
+          )}
           {busy && (
             <div className="loading-line" role="status" aria-label="Working" />
           )}
@@ -399,19 +411,13 @@ export default function App() {
       {dialog?.kind === "decision" && (
         <Modal
           title={
-            dialog.approve
-              ? state.mode === "preview"
-                ? "Approve this sample?"
-                : "Approve and send this reply?"
-              : "Reject this draft?"
+            dialog.approve ? approvalCopy(state).title : "Reject this draft?"
           }
           onClose={() => setDialog(null)}
         >
           <p>
             {dialog.approve
-              ? state.mode === "preview"
-                ? "This records an approval in the preview. Nothing will be sent."
-                : `This sends the reviewed text to ${dialog.draft.target} through your existing backend’s delivery workflow.`
+              ? approvalCopy(state, dialog.draft.target).description
               : "The draft will be rejected. Nothing will be sent."}
           </p>
           <div className="confirmation-message">{dialog.draft.text}</div>
@@ -419,6 +425,11 @@ export default function App() {
             <Button onClick={() => setDialog(null)}>Keep reviewing</Button>
             <Button
               variant={dialog.approve ? "primary" : "danger"}
+              disabled={
+                busy ||
+                reviewUnavailable(state) ||
+                (dialog.approve && state.paused)
+              }
               onClick={() => {
                 const { draft, approve } = dialog;
                 setDialog(null);
@@ -432,12 +443,10 @@ export default function App() {
                 );
               }}
             >
-              {dialog.approve
-                ? state.mode === "preview"
-                  ? "Approve sample"
-                  : "Approve & send"
-                : "Reject draft"}
-              {dialog.approve && <ExternalLink size={15} />}
+              {dialog.approve ? approvalCopy(state).label : "Reject draft"}
+              {dialog.approve &&
+                state.mode === "local" &&
+                state.deliveryMode === "live" && <ExternalLink size={15} />}
             </Button>
           </div>
         </Modal>

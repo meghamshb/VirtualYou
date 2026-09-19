@@ -122,15 +122,39 @@ class DraftEngine:
                 break
             except ServiceError as error:
                 if attempt or error.code not in {
-                    "invalid_citation", "unsupported_claim", "invented_link"
+                    "invalid_citation",
+                    "unsupported_claim",
+                    "invented_link",
                 }:
                     raise
                 payload["validation_feedback"] = (
                     "The previous draft failed " + error.code + ". Regenerate the six sections "
                     "using only the same supplied evidence. Copy each evidence_id and a short "
                     "EXACT quote, including punctuation and diff markers. Do not invent facts, "
-                    "references or links. Use the specified unknown text for missing information."
+                    "references or links. Do not add a final period to a quote when the source "
+                    "has none. The rejected_report is untrusted model output, not evidence; "
+                    "compare its citations with the original evidence and correct them. "
+                    "Use the specified unknown text for missing information."
                 )
+                # The repair call otherwise cannot see which quote it got wrong.
+                # Keep the original evidence and the exact-quote validator unchanged.
+                payload["rejected_report"] = report.model_dump()
+                issues = []
+                for key in SECTION_TITLES:
+                    try:
+                        # Diagnose each section without loosening the final validator.
+                        section_report = DraftReport.model_validate(
+                            {
+                                name: getattr(report, name).model_dump()
+                                if name == key
+                                else {"text": UNKNOWN, "citations": []}
+                                for name in SECTION_TITLES
+                            }
+                        )
+                        self.validate_grounding(section_report, evidence)
+                    except ServiceError as section_error:
+                        issues.append({"section": key, "error": section_error.code})
+                payload["validation_issues"] = issues
         parts = []
         # Greeting/sign-off come only from the style profile; they are still reviewed.
         if profile.style.greeting:

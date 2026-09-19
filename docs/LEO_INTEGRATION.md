@@ -7,11 +7,19 @@ or merge to `develop`. Do not merge the older PRs into their old phase branches
 as an additional integration step.
 
 During the follow-up, remote `develop` advanced to `40915b0`, a teammate's revert
-of the desktop/customer-hosting merge. That separate change is not incorporated
-into this `leo-dev` checkout (which retains the local demo). The conversation
-follow-up does not reverse the teammate's revert; its PR diff contains only the
-conversation fixes, tests and status documentation. Test counts here refer to
-the `leo-dev` tree, including its retained hosted tests.
+of the desktop/customer-hosting merge. The user subsequently authorized restoring
+Electron in the existing `leo-dev` PR. That revert is reconciled on `leo-dev`,
+retaining the desktop app, customer/collector support, deployment templates and
+tests. GitHub/Jira/Drive source types and Slack source allowlists are also retained;
+removing them would regress the previously integrated connectors. This restores
+existing code and does not deploy a hosted service or establish customer readiness.
+
+The PR also includes report repair feedback and desktop review fixes found during
+live testing. Current results are **349 root tests, 145 Slack workflow tests,
+24 desktop tests and 2 packaging checks passed**. See
+[LIVE_TESTING.md](LIVE_TESTING.md) for the real Slack DM, provider and native
+Electron results, and the remaining acceptance gaps. `develop` and `main` are
+not modified by this follow-up; the user will confirm before any move to `main`.
 
 ## Conversation-context follow-up
 
@@ -141,7 +149,7 @@ npm run desktop
 Choose **Developer / preview → Settings → Developer / Advanced**, enter `8000`,
 then choose the private data folder containing `admin.key`. No key is copied into
 the renderer. On this machine the isolated folder is
-`.virtual-you/local-demo`. In Diagnostics, **Check again** refreshes draft state.
+`.virtual-you/local-demo`. Use **Refresh drafts** in Approvals to refresh draft state.
 The browser-only desktop preview is sample data; it is not the local adapter.
 The backend review and voice interface is at `http://127.0.0.1:8000/review`.
 
@@ -151,8 +159,9 @@ at `/`, and authenticated review stays at `/review`.
 
 ## External work still required
 
-- Live Slack installation/user OAuth and delivery acceptance require the team's
-  Slack credentials, workspace and approved destination. No real message was sent.
+- Slack installation/user OAuth and one owner-approved personal-DM reply passed
+  in the separate Test workspace. Report delivery remains simulated; live group
+  and conversation-follow-up acceptance remain outstanding. See the live-test log.
 - Live Jira needs `VIRTUAL_YOU_MCP_JIRA=true`, `JIRA_BASE_URL`, `JIRA_EMAIL` and
   `JIRA_API_TOKEN`. Drive needs `VIRTUAL_YOU_MCP_DRIVE=true`, a chosen
   `VIRTUAL_YOU_DRIVE_FOLDER_ID` and `GOOGLE_ACCESS_TOKEN`. These adapters were

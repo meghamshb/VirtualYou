@@ -8,6 +8,7 @@ import {
 export function freshWorkspace(): Workspace {
   return {
     mode: "preview",
+    deliveryMode: "simulation",
     step: "connect",
     integrations: providerIds.map((id) => ({ id, state: "disconnected" })),
     projects: [

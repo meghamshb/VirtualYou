@@ -1,20 +1,31 @@
 import { useState } from "react";
-import { Check, X, FileText, ArrowUpRight, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  X,
+  FileText,
+  ArrowUpRight,
+  ShieldCheck,
+  RefreshCw,
+} from "lucide-react";
 import type { Workspace, Draft } from "../../shared/model";
+import { approvalCopy, reviewUnavailable } from "../../shared/review";
 import { Button, EmptyState } from "../components/ui";
 export function Approvals({
   state,
   onSample,
   onDecision,
+  onRefresh,
   busy,
 }: {
   state: Workspace;
   onSample: () => void;
   onDecision: (d: Draft, approve: boolean) => void;
+  onRefresh: () => void;
   busy: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const draft = state.drafts.find((d) => d.id === selected) || state.drafts[0];
+  const unavailable = reviewUnavailable(state);
   return (
     <>
       <div className="page-intro">
@@ -22,6 +33,11 @@ export function Approvals({
         <p>
           Review the message and the evidence behind it before anything is sent.
         </p>
+        {state.mode === "local" && (
+          <Button variant="ghost" onClick={onRefresh} disabled={busy}>
+            <RefreshCw size={17} /> Refresh drafts
+          </Button>
+        )}
       </div>
       {!draft ? (
         <EmptyState title="Nothing waiting for your approval">
@@ -50,7 +66,9 @@ export function Approvals({
                     {d.status === "pending"
                       ? "Ready for review"
                       : d.status === "simulated"
-                        ? "Approved in preview"
+                        ? state.mode === "preview"
+                          ? "Approved in preview"
+                          : "Delivery simulated"
                         : d.status}
                   </small>
                 </span>
@@ -98,26 +116,26 @@ export function Approvals({
                 <>
                   <Button
                     variant="ghost"
-                    disabled={busy}
+                    disabled={busy || unavailable}
                     onClick={() => onDecision(draft, false)}
                   >
                     <X size={17} /> Reject
                   </Button>
                   <Button
                     variant="primary"
-                    disabled={busy || state.paused}
+                    disabled={busy || state.paused || unavailable}
                     onClick={() => onDecision(draft, true)}
                   >
                     <Check size={17} />
-                    {state.mode === "preview"
-                      ? "Approve sample"
-                      : "Approve & send"}
+                    {approvalCopy(state).label}
                   </Button>
                 </>
               ) : (
                 <span className="resolved">
                   {draft.status === "simulated"
-                    ? "Approved in preview. No message was sent."
+                    ? state.mode === "preview"
+                      ? "Approved in preview. No message was sent."
+                      : "Delivery simulated by your backend. No message was sent."
                     : `This draft is ${draft.status}.`}
                 </span>
               )}

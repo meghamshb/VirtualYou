@@ -38,7 +38,11 @@ def assemble_prompt(profile: PersonaProfile, evidence, question=None) -> Assembl
         + UNKNOWN
         + "' with an empty citations list. "
         "Do not infer reasoning, blockers, success, promises, deadlines, or links. A failed tool is a "
-        "recorded failure, not necessarily a current blocker. Do not expose or reconstruct private "
+        "recorded failure, not necessarily a current blocker. Do not invent causal relationships: "
+        "separate statements about a blocker and deployment do not "
+        "mean that blocker caused the deployment status. Do not add 'because', 'due to', or "
+        "'preventing' unless that relationship is explicitly recorded. A completed result alone "
+        "does not establish a starting state, chosen approach, or rationale. Do not reconstruct private "
         "chain-of-thought. Include a brief recorded rationale only when explicitly present. "
         "'Reasoning occurred; omitted.' is an omission marker, not an approach. Only the visible "
         "explanation following it, if any, can support an approach. "

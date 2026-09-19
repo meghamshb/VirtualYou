@@ -192,3 +192,35 @@ def test_report_repairs_a_bad_citation_once_without_changing_evidence(settings, 
         assert len(provider.payloads) == 2
         assert provider.payloads[0]["evidence"] == provider.payloads[1]["evidence"]
         assert "invalid_citation" in provider.payloads[1]["validation_feedback"]
+        assert provider.payloads[1]["rejected_report"]["result"]["citations"][0]["quote"] == (
+            "A fabricated source quote."
+        )
+        assert provider.payloads[1]["validation_issues"] == [
+            {"section": "result", "error": "invalid_citation"}
+        ]
+
+
+def test_report_repair_does_not_accept_punctuation_absent_from_source(settings, record):
+    class PunctuatedQuote(DemoProvider):
+        calls = 0
+
+        async def generate(self, **kwargs):
+            result = await super().generate(**kwargs)
+            if kwargs["task"] == "draft":
+                self.calls += 1
+                result["result"]["citations"][0]["quote"] += "."
+            return result
+
+    record["end_state"] = "Callback validated; deployment remains blocked"
+    provider = PunctuatedQuote()
+    with TestClient(create_app(settings, provider=provider)) as client:
+        client.headers["Authorization"] = "Bearer " + KEY
+        prepare(client, record)
+        result = client.post(
+            "/api/drafts",
+            json={"recipient_id": "manager", "destination": {"target": "demo-channel"}},
+        )
+        assert result.status_code == 502
+        assert result.json()["error"]["code"] == "invalid_citation"
+        assert provider.calls == 2
+        assert client.get("/api/drafts").json() == []

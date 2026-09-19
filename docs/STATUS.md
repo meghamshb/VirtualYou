@@ -6,8 +6,12 @@ commit. All new fixes remain on `leo-dev`; this follow-up does not commit, push 
 merge to `develop`.
 
 A later fetch found `develop` at `40915b0`, reverting desktop/customer-hosting
-files. That separate revert is not applied to this local `leo-dev` demo checkout;
-the follow-up PR contains only conversation fixes, tests and documentation.
+files. The user authorized restoring Electron in the existing `leo-dev` PR.
+The branch reconciles that revert while retaining the desktop app, its supporting
+collector/hosted code and the GitHub/Jira/Drive source types. It also includes
+the report-generation and desktop review fixes from live testing. The shared
+`develop` and `main` branches remain unchanged by this follow-up; moving work to
+`main` requires the user's later confirmation.
 
 `conv_context` at `24a1df7` is already included through merge `7ec02f1`. The feature
 audit restored owner-approved clarification replies, excluded current/future
@@ -15,12 +19,15 @@ messages from follow-up context, kept replay from extending topic retention, and
 made successful-delivery state and context persistence atomic. Judgment questions
 still escalate, and factual answers still require scoped activity evidence.
 
-Current verification: **348 backend/ingestion/hosted tests and 145 Slack workflow
+Current verification: **349 backend/ingestion/hosted tests and 145 Slack workflow
 tests passed**. Regression coverage includes ordering, ambiguity, approval,
 redaction, thread isolation, three-day expiry, restart, delivered/changed evidence
 and uncertain delivery. Scoped lint and whitespace checks passed. Slack calls in
-these tests use fake clients; no live Slack delivery was performed. Desktop code
-is unchanged and its earlier build checks were not repeated. See
+these tests use fake clients. A separate live session verified Slack OAuth,
+signed events, an owner-approved personal-DM reply, ElevenLabs transcription,
+OpenAI report generation, and Electron's shared local backend connection and
+report rejection. See [LIVE_TESTING.md](LIVE_TESTING.md) for the evidence,
+report-generation fixes, desktop checks and remaining demo limitations. See
 [LEO_INTEGRATION.md](LEO_INTEGRATION.md) for the branch audit, conflict decisions,
 current checks, local demo instructions and outstanding external setup.
 

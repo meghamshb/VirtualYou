@@ -39,6 +39,7 @@ export interface Activity {
 }
 export interface Workspace {
   mode: "preview" | "local";
+  deliveryMode: "live" | "simulation";
   step: Step;
   integrations: Integration[];
   projects: Project[];

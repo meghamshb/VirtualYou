@@ -47,7 +47,7 @@ export class LocalBackend {
     const status = z
       .object({
         provider: z.string(),
-        delivery_mode: z.string(),
+        delivery_mode: z.enum(["live", "simulation"]),
         projects: z.array(z.string()),
         heartbeat: z
           .object({ state: z.string(), finished_at: z.string().optional() })
@@ -82,9 +82,15 @@ export class LocalBackend {
           .passthrough(),
       )
       .parse(await this.request("/api/drafts"));
+    const profiles = z
+      .array(z.object({ recipient_id: z.string(), display_name: z.string() }))
+      .parse(await this.request("/api/personas"));
+    const names = new Map(
+      profiles.map((p) => [p.recipient_id, p.display_name]),
+    );
     const drafts: Draft[] = raw.map((d) => ({
       id: d.id,
-      recipient: d.request.recipient_id,
+      recipient: names.get(d.request.recipient_id) || d.request.recipient_id,
       text: d.text,
       status: d.status,
       revision: d.revision,
@@ -98,6 +104,7 @@ export class LocalBackend {
     return {
       ...freshWorkspace(),
       mode: "local",
+      deliveryMode: status.delivery_mode,
       welcomed: true,
       health: status.heartbeat?.state === "healthy" ? "ready" : "offline",
       lastRefresh: status.heartbeat?.finished_at || null,
