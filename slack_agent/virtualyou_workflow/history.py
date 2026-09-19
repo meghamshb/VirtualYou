@@ -1,6 +1,6 @@
 """Read only the owner's messages in one explicitly selected existing DM."""
 
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 
 from slack_sdk.errors import SlackApiError
 from virtual_you.backend.errors import ServiceError
@@ -12,7 +12,29 @@ class RetryLater(Exception):
         self.seconds = max(1, min(float(seconds), 3600))
 
 
+def slack_history_bound(value):
+    """Slack history bounds support microseconds, not Python float precision.
+
+    Floor rather than round forward so a checkpoint cannot skip a message.
+    This is only a wire representation: message/thread IDs remain untouched.
+    """
+    try:
+        timestamp = Decimal(str(value))
+        if not timestamp.is_finite() or timestamp < 0:
+            raise ValueError()
+        return format(timestamp.quantize(Decimal("0.000001"), rounding=ROUND_FLOOR), "f")
+    except (InvalidOperation, TypeError, ValueError):
+        raise ServiceError(
+            "invalid_history_timestamp", "The Slack history checkpoint is invalid.", 409
+        ) from None
+
+
 def slack_call(function, **kwargs):
+    # Normalize at the transport boundary, including older persisted checkpoints.
+    # Never normalize ts/thread_ts: those are exact Slack message identifiers.
+    for bound in ("oldest", "latest"):
+        if kwargs.get(bound) not in (None, ""):
+            kwargs[bound] = slack_history_bound(kwargs[bound])
     try:
         return function(**kwargs)
     except SlackApiError as error:

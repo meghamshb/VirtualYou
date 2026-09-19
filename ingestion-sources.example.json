@@ -18,5 +18,11 @@
     "pattern": "**/*.jsonl",
     "workspace": "/absolute/path/to/MakeNoMistake",
     "project": "virtualyou"
+  },
+  {
+    "source": "codex",
+    "path": "/absolute/path/to/project-specific/codex/rollout.jsonl",
+    "workspace": "/absolute/path/to/MakeNoMistake",
+    "project": "virtualyou"
   }
 ]

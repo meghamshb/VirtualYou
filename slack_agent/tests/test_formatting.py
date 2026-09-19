@@ -53,3 +53,52 @@ def test_assistance_disclosure_is_idempotent_and_legacy_drafts_are_unchanged():
     validate_reply_disclosure({'reply': candidate}, assisted_reply('Reworded.'))
     with pytest.raises(ServiceError, match='Keep the VirtualYou-assisted reply label'):
         validate_reply_disclosure({'reply': candidate}, 'Removed label.')
+
+
+def test_delivered_blocks_brand_assisted_reply_without_rewriting_claims():
+    from virtualyou_workflow.formatting import assisted_reply, delivered_reply_blocks, slack_text
+    body = '**Progress**\n- Tests pass.\n\nDeployment is unknown. <@U123>'
+    blocks = delivered_reply_blocks(assisted_reply(body))
+    assert [block['type'] for block in blocks[:3]] == ['header', 'context', 'divider']
+    assert blocks[0]['text']['text'] == 'VirtualYou'
+    assert blocks[1]['elements'][0]['text'] == 'VirtualYou-assisted reply'
+    assert ''.join(block['text']['text'] for block in blocks[3:]) == slack_text(body)
+    assert '<@' not in str(blocks)
+    assert 'Deployed' not in str(blocks)
+    assert not any(b['type'] == 'header' for b in delivered_reply_blocks('Legacy body.'))
+
+
+def test_evidence_is_compact_and_complete_quotes_remain_available():
+    from virtualyou_workflow.formatting import evidence_modal, evidence_preview, source_quotes
+    long_quote = 'A long source line about tests. ' * 40
+    other_quote = 'No deployment evidence.'
+    grounding = {'paragraphs': [
+        {'citations': [{'quote': long_quote}, {'quote': other_quote}]},
+        {'citations': [{'quote': long_quote}]},
+    ]}
+    quotes = source_quotes(grounding)
+    assert quotes == [long_quote, other_quote]
+    preview = evidence_preview(quotes)
+    assert len(preview['text']['text']) < 500
+    assert '2 unique excerpts' in preview['text']['text']
+    assert 'View evidence' in preview['text']['text']
+    modal = evidence_modal(quotes)
+    assert modal['blocks'][1]['text']['text'] == '1. ' + long_quote
+    assert modal['blocks'][2]['text']['text'] == '2. ' + other_quote
+    assert 'submit' not in modal
+
+
+def test_evidence_modal_paginates_all_quotes_without_truncation():
+    import json
+
+    from virtualyou_workflow.formatting import evidence_modal
+    quotes = ['x' * 6100 for _ in range(50)]
+    first = evidence_modal(quotes, reply_id='reply')
+    second = evidence_modal(quotes, reply_id='reply', page=1)
+    for modal in (first, second):
+        assert len(modal['blocks']) <= 100
+        assert all(len(block['text']['text']) <= 3000 for block in modal['blocks'] if block['type'] == 'section')
+    restored = ''.join(block['text']['text'] for modal in (first, second) for block in modal['blocks'][1:] if block['type'] == 'section')
+    assert restored == ''.join(f'{i}. {quote}' for i, quote in enumerate(quotes, 1))
+    next_button = first['blocks'][-1]['elements'][0]
+    assert json.loads(next_button['value']) == {'id': 'reply', 'page': 1}

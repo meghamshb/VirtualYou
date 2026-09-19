@@ -471,7 +471,7 @@ def test_ambiguous_follow_up_offers_clarification_only_after_owner_approval(tmp_
 
 
 def test_new_assisted_reply_is_disclosed_before_review_and_sent_exactly(tmp_path):
-    from virtualyou_workflow.formatting import card_fallback, slack_text
+    from virtualyou_workflow.formatting import card_fallback, delivered_reply_blocks, slack_text
     monitor, calls = make_monitor(tmp_path)
     async def run():
         await monitor.poll()
@@ -489,7 +489,9 @@ def test_new_assisted_reply_is_disclosed_before_review_and_sent_exactly(tmp_path
         await monitor.decide(key, True)
         assert calls[1]['text'] == slack_text(row['reply'])
         assert calls[1]['channel'] == 'DHUMAN'
-        assert 'blocks' not in calls[1]  # No unreviewed decoration at delivery.
+        assert calls[1]['blocks'] == delivered_reply_blocks(row['reply'])
+        start = review['blocks'].index(calls[1]['blocks'][0])
+        assert review['blocks'][start:start + len(calls[1]['blocks'])] == calls[1]['blocks']
     asyncio.run(run())
 
 
@@ -523,3 +525,29 @@ def test_legacy_pending_reply_sends_existing_reviewed_text_without_retroactive_l
         await monitor.decide(key, True)
         assert calls[-1]['text'] == 'Previously reviewed reply.'
     asyncio.run(run())
+
+
+def test_evidence_modal_is_owner_only_and_does_not_send(tmp_path):
+    monitor, calls = make_monitor(tmp_path)
+    async def prepare():
+        await monitor.poll()
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection() as db:
+            return db.execute('select id from slack_dm_replies').fetchone()[0]
+    key = asyncio.run(prepare())
+    handlers, opened = {}, []
+    app = SimpleNamespace(action=lambda name: lambda fn: handlers.update({name: fn}),
+                          view=lambda name: lambda fn: handlers.update({name: fn}))
+    monitor.c.dm_replies = monitor
+    monitor.c.authorized = lambda body: body['user'] == 'owner'
+    register_dm_actions(app, monitor.c, lambda *args: 'key')
+    client = SimpleNamespace(views_open=lambda **kwargs: opened.append(kwargs))
+    body = {'user': 'stranger', 'actions': [{'value': key}], 'trigger_id': 'trigger'}
+    handlers['vy_dm_evidence'](lambda: None, body, client)
+    assert not opened
+    body['user'] = 'owner'
+    handlers['vy_dm_evidence'](lambda: None, body, client)
+    assert len(opened) == 1
+    assert 'Validation completed.' in json.dumps(opened[0]['view'])
+    assert len(calls) == 1  # Opening source detail does not send or approve.
+    assert monitor.get(key)['state'] == 'pending'

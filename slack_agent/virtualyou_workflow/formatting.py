@@ -1,6 +1,7 @@
 """Readable Slack mrkdwn without activating model-written mentions or links."""
 
 import html
+import json
 import re
 
 
@@ -94,3 +95,81 @@ def validate_reply_disclosure(row, text):
             "Keep the VirtualYou-assisted reply label and blank line at the top so the recipient can identify AI assistance.",
             422,
         )
+
+
+def delivered_reply_blocks(text):
+    """The same complete reply layout is previewed and delivered.
+
+    This adds presentation, not a new factual summary. The assistance disclosure
+    is already in the saved text; older unlabelled candidates stay undecorated.
+    """
+    prefix = ASSISTED_REPLY_LABEL + "\n\n"
+    if not text.startswith(prefix):
+        return formatted_sections(text)
+    body = text[len(prefix):]
+    return [
+        {"type": "header", "text": {"type": "plain_text", "text": "VirtualYou"}},
+        {"type": "context", "elements": [
+            {"type": "plain_text", "text": ASSISTED_REPLY_LABEL}
+        ]},
+        {"type": "divider"},
+        *formatted_sections(body),
+    ]
+
+
+def source_quotes(grounding):
+    """Deduplicate exact repeated citations while preserving their order."""
+    return list(dict.fromkeys(
+        citation['quote']
+        for paragraph in grounding.get('paragraphs', [])
+        for citation in paragraph.get('citations', [])
+        if citation.get('quote')
+    ))
+
+
+def evidence_preview(quotes):
+    count = len(quotes)
+    excerpts = [" ".join(quote.split()) for quote in quotes[:2]]
+    excerpts = [value[:157] + '…' if len(value) > 160 else value for value in excerpts]
+    return {
+        "type": "section",
+        "text": {"type": "plain_text", "text":
+            f"Source quotes · {count} unique excerpt{'s' if count != 1 else ''}\n"
+            + '\n'.join('• ' + value for value in excerpts)
+            + '\nOpen View evidence for the complete quotes.'},
+    }
+
+
+def evidence_modal(quotes, *, reply_id="", page=0):
+    # The normal grounding schema has at most 50 quotes, but old source records
+    # can be longer. Paginate every character instead of truncating at Slack's
+    # per-section and 100-block modal limits.
+    chunks = []
+    for index, quote in enumerate(quotes, 1):
+        labelled = f"{index}. {quote}"
+        chunks.extend(labelled[i:i + 3000] for i in range(0, len(labelled), 3000))
+    pages = max(1, (len(chunks) + 89) // 90)
+    page = max(0, min(int(page), pages - 1))
+    blocks = [
+        {"type": "section", "text": {"type": "plain_text", "text":
+            "Full source quotes for this reply. Check that they support the draft before approving."}},
+        *[
+            {"type": "section", "text": {"type": "plain_text", "text": chunk}}
+            for chunk in chunks[page * 90:(page + 1) * 90]
+        ],
+    ]
+    if pages > 1:
+        blocks.append({"type": "context", "elements": [
+            {"type": "plain_text", "text": f"Page {page + 1} of {pages} · all quotes retained"}
+        ]})
+        buttons = []
+        for label, target in (("Previous", page - 1), ("Next", page + 1)):
+            if 0 <= target < pages:
+                buttons.append({"type": "button", "text": {"type": "plain_text", "text": label},
+                                "action_id": f"vy_dm_evidence_{label.lower()}",
+                                "value": json.dumps({"id": reply_id, "page": target})})
+        blocks.append({"type": "actions", "elements": buttons})
+    return {
+        "type": "modal", "title": {"type": "plain_text", "text": "Reply evidence"},
+        "close": {"type": "plain_text", "text": "Close"}, "blocks": blocks,
+    }

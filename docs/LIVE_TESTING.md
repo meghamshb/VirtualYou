@@ -117,8 +117,11 @@ coverage.
 - Slack cards use shared Block Kit templates and clear sender identity. New
   personal-DM candidates include a VirtualYou assistance label before review;
   approved text is unchanged at delivery. Existing drafts remain unchanged.
-  155 fake-client tests passed. Native Slack appearance and a new labelled live
-  DM remain unverified; no colleague message was sent for these UI changes.
+  155 fake-client tests passed at that checkpoint. A later native Slack inspection
+  confirmed the 07:39 labelled owner reply and the matching structured review
+  card. The delivered DM still used plain paragraphs; that observation prompted
+  the subsequent delivered-message layout work. No colleague message was sent
+  by the agent to test that initial design.
 
 ## Local operator files
 
@@ -129,3 +132,74 @@ The one-time credential-entry helper was stopped after configuration.
 The original port-8000 browser demo has separate data in
 `.virtual-you/local-demo/`; its synthetic voice test is not mixed into the Slack
 project's factual work evidence.
+
+## Desktop logo
+
+The exact transparent VirtualYou logo extracted from the launch video now ships
+as the renderer logo, runtime Dock/window icon, and macOS packaging ICNS.
+Desktop lint, typecheck and production/Electron build passed. The restarted
+native app displayed the new logo and retained its backend connection. The
+packaging configuration includes the ICNS; a signed app release was not built.
+
+## Verify real Claude and Codex ingestion
+
+The focused parser/pipeline check passed **25 tests**. That verifies fixtures,
+redaction and incremental publication, not a real editor-session acceptance test.
+The active local collector was Git only when inspected.
+
+1. Copy the relevant entries from `ingestion-sources.example.json` into your
+   private ingestion configuration and set `VIRTUAL_YOU_INGESTION_CONFIG` to its
+   absolute path. Use a specific session file or a project-specific directory.
+   The project label assigns scope; it does not filter a global log directory by
+   workspace. Do not point it at every project's Claude/Codex history.
+2. In each coding tool, make one harmless, identifiable change in this repository.
+   Confirm the configured file is that tool's actual session log. Restart the
+   backend after changing the configuration environment variable.
+3. In Electron, choose **Activity → Check activity now**. Confirm successful
+   collection and an item with source `claude` or `codex`, project `virtualyou`,
+   and the expected change. Zero errors with no matching record is not success.
+   Run it again without new work: the unchanged source must not add duplicates.
+4. Inspect the normalized local activity record for public explanations and
+   redaction; private thinking/analysis must be absent. Use dummy secrets only
+   when testing redaction. Raw sessions and normalized personal records stay
+   outside Git.
+5. Separately enable the source in Slack's retrieval preferences for a recipient
+   authorized for this project. Ask a question about the change and inspect the
+   pending draft's evidence. No send is needed to verify this step. Selecting a
+   source in Slack alone does not configure collection.
+
+## Slack delivered layout and self-test follow-up
+
+- Native Slack inspection confirmed the earlier labelled 07:39 colleague reply
+  was still plain paragraphs. The updated personal-DM sender now supplies the
+  same branded Block Kit body shown in the review card. Existing messages are
+  not rewritten, and the owner's identity and exact reviewed fallback are retained.
+- Evidence previews show a count and two short excerpts; **View evidence** opened
+  a live modal with the complete quotes. Long evidence has tested pagination.
+- Enabled the optional self-test route only for Leo's verified own DM and the
+  `virtualyou` project. It operates alongside the existing colleague monitor.
+  A real `vy-test:` question generated one pending OpenAI reply. Approval through
+  the native Slack card delivered it to that same self-DM, and the native app
+  visibly rendered the branded header, assistance label, divider and full body.
+- The generated wording still needs human review: this run summarized historical
+  Git commits, including a revert, rather than proving current runtime behavior.
+  This test establishes routing/presentation/approval, not perfect answer quality.
+- Combined Slack suite: **195 passed**, including 23 self-test and 13 timestamp-recovery cases. The focused
+  backend activity/integrated-pipeline regression passed **26 tests**. Desktop
+  branding lint, typecheck and production/Electron build passed.
+
+Use [SELF_TESTING.md](../slack_agent/SELF_TESTING.md) for the opt-in configuration
+and test procedure. Normal self-notes and automated answers are ignored; no
+colleague persona is created or altered for self-testing.
+
+### Recovery polling fix found during the self-test
+
+A real Slack history request returned no messages for a seven-decimal Python
+timestamp, but returned both test messages when floored to six decimal places.
+The shared Slack transport now normalizes only `oldest`/`latest` search bounds;
+source event IDs and thread timestamps remain untouched. After restarting with
+the fix, the stored polling checkpoint advanced through the delivered reply and
+the self-test database still contained exactly one sent reply, with no extra
+queued or pending reply. Read-only Slack history confirmed one delivered message
+with matching approved wording (Slack normalizes fallback whitespace) and matching
+Block Kit content (excluding Slack-added block IDs/default emoji flags).

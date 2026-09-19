@@ -19,7 +19,7 @@ messages from follow-up context, kept replay from extending topic retention, and
 made successful-delivery state and context persistence atomic. Judgment questions
 still escalate, and factual answers still require scoped activity evidence.
 
-Current verification: **366 backend/ingestion/hosted tests and 155 Slack workflow
+Current verification: **366 backend/ingestion/hosted tests and 195 Slack workflow
 tests passed**. Regression coverage includes ordering, ambiguity, approval,
 redaction, thread isolation, three-day expiry, restart, delivered/changed evidence
 and uncertain delivery. Scoped lint and whitespace checks passed. Slack calls in
@@ -38,8 +38,11 @@ shared Block Kit templates; new personal-DM candidates disclose AI assistance
 before approval. A clean macOS setup is documented in [LOCAL_SETUP.md](LOCAL_SETUP.md).
 Desktop checks: **28 Vitest tests + 2 packaging checks**, lint and build passed.
 Native checks cover real activity refresh and compact report disclosure controls.
-Jira/Drive credentials, editor-log source configuration, hosted customer release,
-and a labelled live-DM acceptance check remain separate work.
+Jira/Drive credentials, editor-log source configuration and hosted customer release
+remain separate work. Labelled self-DM delivery and its full evidence modal have
+now passed native Slack checks; the combined Slack suite has 195 passing tests.
+Self-testing is opt-in and uses an explicit `vy-test:` prefix in the owner’s own DM.
+Electron now uses the supplied launch-video logo for runtime and packaged icons.
 
 The notes below are historical Member 2/4 milestones; their branch names and
 acceptance counts are not the current integration result.

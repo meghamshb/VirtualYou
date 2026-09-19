@@ -239,6 +239,9 @@ def register(app, coordinator=None):
             return
         if coordinator.dm_replies:
             coordinator.dm_replies.receive_event(event, body.get("team_id"))
+            self_test = getattr(coordinator.dm_replies, "self_test", None)
+            if self_test and self_test.accepts_event(event):
+                return  # A self-DM test never receives bot onboarding replies.
         if getattr(coordinator.dm_replies, "all_personal_dms", False):
             return  # Home is the control surface; never echo into personal DMs.
         # User-authorized events include human-to-human DMs. Never post the

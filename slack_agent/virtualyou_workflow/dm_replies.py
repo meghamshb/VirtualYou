@@ -12,12 +12,16 @@ from virtual_you.ingest.redact import redact_text
 
 from .conversation_context import ConversationContext, conversation_id, evidence_references
 from .formatting import (
+    ASSISTED_REPLY_LABEL,
     assisted_reply,
     card_fallback,
     card_fields,
     card_heading,
-    formatted_sections,
+    delivered_reply_blocks,
+    evidence_modal,
+    evidence_preview,
     slack_text,
+    source_quotes,
     validate_reply_disclosure,
 )
 from .history import RetryLater, slack_call
@@ -81,10 +85,17 @@ class DMReplies:
         with self.c.backend.store.connection(write=True) as db:
             self._insert(db, person['human_channel'], event)
 
-    def _insert(self, db, channel, message):
+    def _incoming_text(self, channel, message):
         if message.get('user') != self.recipient or message.get('bot_id') or message.get('subtype'):
-            return
-        content = redact_text(message.get('text', '')).strip()[:4000]
+            return None
+        # Owner-authored outbound messages never become ordinary colleague requests.
+        # The explicit self-test subclass has its own channel/prefix filter.
+        if message.get('user') == self.c.config.owner_id:
+            return None
+        return redact_text(message.get('text', '')).strip()[:4000]
+
+    def _insert(self, db, channel, message):
+        content = self._incoming_text(channel, message)
         if not content or not message.get('ts'):
             return
         ts = message['ts']
@@ -185,7 +196,7 @@ class DMReplies:
         grounding_note = (
             'Clarification only; asks which topic was meant and makes no work claims.'
             if grounding.get('kind') == 'clarification' else
-            'Grounded in selected work evidence; review the quotes below.'
+            'Work evidence attached · review before sending.'
             if grounding.get('evidence') else 'No matching authorized work evidence.'
         )
         blocks = card_heading("Reply to " + name, status or "Review required")
@@ -195,22 +206,28 @@ class DMReplies:
         }), {'type': 'section', 'text': plain('Incoming question\n' + row['prompt'][:2000])},
             {'type': 'divider'},
         ]
-        blocks += formatted_sections(row['reply'] or 'Preparing reply…')
+        blocks += delivered_reply_blocks(row['reply'] or 'Preparing reply…')
         blocks += [
             {'type': 'context', 'elements': [plain('Style: ' + row.get('style_source', 'reviewed persona'))]},
             {'type': 'context', 'elements': [plain(grounding_note)]},
         ]
         if not status:
             blocks.append({'type': 'context', 'elements': [plain(delivery)]})
-        quotes = [citation['quote'] for paragraph in grounding.get('paragraphs', []) for citation in paragraph.get('citations', [])]
+        quotes = source_quotes(grounding)
         if quotes:
-            blocks.append({'type': 'section', 'text': plain('Source quotes (review for support):\n' + '\n'.join(quotes)[:2500])})
+            blocks.append(evidence_preview(quotes))
         if not status:
             blocks.append({'type': 'actions', 'elements': [
                 {'type': 'button', 'text': plain('Approve & send as me' if as_user else 'Approve & send as bot'), 'action_id': 'vy_dm_approve', 'value': row['id'], 'style': 'primary'},
                 {'type': 'button', 'text': plain('Edit & send'), 'action_id': 'vy_dm_edit', 'value': row['id']},
                 {'type': 'button', 'text': plain('Reject'), 'action_id': 'vy_dm_reject', 'value': row['id']},
             ]})
+        if quotes:
+            evidence_button = {'type': 'button', 'text': plain('View evidence'), 'action_id': 'vy_dm_evidence', 'value': row['id']}
+            if blocks[-1]['type'] == 'actions':
+                blocks[-1]['elements'].append(evidence_button)
+            else:
+                blocks.append({'type': 'actions', 'elements': [evidence_button]})
         if status and row.get('state') == 'sent' and row.get('original_reply'):
             from .learning import learning_buttons
             blocks.extend(learning_buttons(self.c, row))
@@ -362,6 +379,8 @@ class DMReplies:
                     'unfurl_links': False,
                     'unfurl_media': False,
                 }
+                if row['reply'].startswith(ASSISTED_REPLY_LABEL + '\n\n'):
+                    payload['blocks'] = delivered_reply_blocks(row['reply'])
                 if row.get('thread_ts'):
                     payload['thread_ts'] = row['thread_ts']
                 sent = await asyncio.to_thread(slack_call, client.chat_postMessage, **payload)
@@ -400,3 +419,26 @@ def register_dm_actions(app, coordinator, event_key):
         return handler
     for action, approve in [('vy_dm_approve', True), ('vy_dm_reject', False)]:
         app.action(action)(make_handler(approve))
+
+
+    @app.action("vy_dm_evidence")
+    def show_evidence(ack, body, client):
+        ack()
+        if not coordinator.authorized(body) or not coordinator.dm_replies:
+            return
+        row = coordinator.dm_replies.get(body['actions'][0]['value'])
+        quotes = source_quotes(json.loads(row.get('grounding') or '{}'))
+        client.views_open(trigger_id=body['trigger_id'], view=evidence_modal(quotes, reply_id=row['id']))
+
+    def evidence_page(ack, body, client):
+        ack()
+        if not coordinator.authorized(body) or not coordinator.dm_replies:
+            return
+        data = json.loads(body['actions'][0]['value'])
+        row = coordinator.dm_replies.get(data['id'])
+        quotes = source_quotes(json.loads(row.get('grounding') or '{}'))
+        client.views_update(view_id=body['view']['id'], hash=body['view'].get('hash'),
+            view=evidence_modal(quotes, reply_id=row['id'], page=data['page']))
+
+    app.action("vy_dm_evidence_previous")(evidence_page)
+    app.action("vy_dm_evidence_next")(evidence_page)

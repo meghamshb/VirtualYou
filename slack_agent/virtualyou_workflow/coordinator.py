@@ -58,6 +58,8 @@ class Coordinator(Member4, Experience):
             from .dm_replies import DMReplies
             self.state.recipient(watched)
             self.dm_replies = DMReplies(self, watched)
+        from .self_test import configure_self_test
+        self.dm_replies = configure_self_test(self, self.dm_replies)
 
     def restore_destinations(self):
         channels = [r["bot_channel"] for r in self.state.recipients() if r.get("bot_channel")]
