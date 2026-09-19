@@ -165,6 +165,12 @@ grounding checks and human review. Live model quality is not claimed by these te
 
 ## Acceptance and verification
 
+The paired evaluation runner now exercises report-body style and controlled
+factual cases through Member 3's pending-draft workflow. See
+[MEMBER2_ACCEPTANCE.md](MEMBER2_ACCEPTANCE.md) for commands, review artifacts,
+failure statuses, and current evidence. It never labels offline checks as live
+model acceptance.
+
 The implementation paths for Member 2 in
 [TEAM_DELIVERABLES.md](TEAM_DELIVERABLES.md) exist, but offline tests do not
 establish the complete persona-quality acceptance criteria.
@@ -179,7 +185,7 @@ establish the complete persona-quality acceptance criteria.
 | Facts/style separation | Data separation, redaction, injection cases, and safe salutations tested | Evaluate factual preservation in real model drafts |
 | Visibly different tone with identical facts | Deterministic demo has identical bodies; only greetings/sign-offs differ | Demonstrate substantive differences in wording, sentence style and formality without changing claims |
 | Local storage excluded from Git | Ignore and permission checks pass | Keep actual messages/profiles in ignored storage |
-| At least five tests | 19 new Member 2 cases, plus inherited persona tests | No additional test count is needed; live quality evidence is the gap |
+| At least five tests | 35 new Member 2 cases, plus inherited persona tests | No additional test count is needed; live quality evidence is the gap |
 
 Before calling Member 2 demo-ready, run both personas through the selected
 model on the same normalized activity; compare all six sections against the
@@ -192,7 +198,7 @@ not evidence that a model has learned a convincing personal writing style.
 The inherited backend already supplied profile creation, provider calls, local
 storage, a minimal form, and draft-engine integration. This branch extends those
 with portable profiles, a standalone CLI/API handoff, tighter style boundaries,
-fixtures, documentation, and 19 additional tests. The total regression count
+fixtures, paired evaluation, documentation, and 35 additional tests. The total regression count
 below includes other members' existing tests; it is not a count of new tests.
 
 ```bash
@@ -208,7 +214,7 @@ permissions, Git exclusions, CLI use, API authentication, empty/unredacted input
 and the synthetic end-to-end comparison. Existing draft/approval/delivery and
 ingestion tests remain the regression boundary.
 
-Verified on Python 3.12: **131 tests passed** (including 19 new Member 2 cases);
+Verified on Python 3.12: **147 tests passed** (including 35 new Member 2 cases);
 the separate synthetic demo passed. Live OpenAI/Ollama style quality and live
 messaging were not exercised. The test runner reports two pre-existing
 FastAPI/Starlette dependency deprecation warnings.

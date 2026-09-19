@@ -7,6 +7,8 @@ contracts, Member 1/4 handoffs, deployment, and known limits.
 
 Member 2's local persona tools, portable `soul.md`, prompt API, and two-recipient
 acceptance demo are documented in **[MEMBER2.md](MEMBER2.md)**.
+Paired live-model checks and their current evidence are in
+**[MEMBER2_ACCEPTANCE.md](MEMBER2_ACCEPTANCE.md)**.
 
 ```bash
 python3.12 -m venv .venv
