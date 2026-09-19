@@ -116,7 +116,13 @@ class DemoProvider:
         section("changes", [e for e in evidence if e["field"].startswith("files_changed")])
         section("result", [e for e in evidence if e["field"] == "end_state"])
         section("links", [e for e in evidence if re.search(r"https?://", e["text"])])
-        section("blockers", [e for e in evidence if "[failed]" in e["text"]])
+        explicit_blockers = [
+            e
+            for e in evidence
+            if e["field"] == "end_state"
+            and re.search(r"\b(block(?:er|ed|ing|ers)?|waiting|awaiting)\b", e["text"], re.I)
+        ]
+        section("blockers", explicit_blockers or [e for e in evidence if "[failed]" in e["text"]])
         return report
 
 

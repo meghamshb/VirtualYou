@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Virtual You — Audio test</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/recorder.js" defer></script>
+  <script src="/static/voice-test.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>Try your voice memo</h1>
+  <p>Record → stop → transcribe → see what ElevenLabs returned.</p>
+  <p id="test-setup" role="status">Checking ElevenLabs configuration…</p>
+  <p>No backend login needed here. Your ElevenLabs key stays on the server.</p>
+  <div id="voice-recorder" class="recorder" role="group" aria-label="Record a voice memo">
+    <div class="recorder-heading"><strong>Record a memo</strong><span id="voice-timer" role="timer" aria-label="Recording duration">0:00</span></div>
+    <p id="voice-status" role="status">Ready. Press Record and allow microphone access.</p>
+    <div id="voice-meter-box" hidden>
+      <label for="voice-level">Microphone input</label>
+      <meter id="voice-level" min="0" max="100" low="15" high="90" optimum="60" value="0" aria-label="Microphone input level"></meter>
+      <p id="voice-signal" role="status">Listening for sound…</p>
+    </div>
+    <button id="voice-start" type="button" disabled>Record</button>
+    <button id="voice-stop" type="button" hidden>Stop recording</button>
+    <button id="voice-discard" type="button" hidden>Discard recording</button>
+    <div id="voice-preview" hidden>
+      <audio id="voice-playback" controls preload="metadata" aria-label="Preview your voice memo"></audio>
+      <button id="voice-transcribe" type="button" disabled>Transcribe this memo</button>
+    </div>
+    <small>Audio stays in this tab until you press Transcribe. Recording stops just before 3 minutes, or when you leave this tab.</small>
+  </div>
+  <form id="voice-upload">
+    <label>Or choose an audio file (up to 3 minutes / 8 MiB)
+      <input id="voice-file" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav,.webm" required>
+    </label>
+    <button id="file-transcribe" type="submit" disabled>Transcribe file</button>
+  </form>
+  <small>Transcribe sends the audio to ElevenLabs Scribe v2 and uses your account’s allowance. This test does not save a note, create a draft, or send a message.</small>
+  <p id="test-notice" role="status" aria-live="polite">Record a memo or choose a file to get started.</p>
+  <section id="test-result" hidden aria-label="Transcription result">
+    <h2>ElevenLabs result</h2>
+    <p id="result-meta"></p>
+    <h3>Transcript</h3>
+    <pre id="result-transcript"></pre>
+    <details open>
+      <summary>Provider response</summary>
+      <p id="result-format"></p>
+      <small>Credential-like values are redacted before display. Everything else is the provider’s returned body.</small>
+      <pre id="result-json"></pre>
+    </details>
+  </section>
+  <section><a href="/review">Open the full review app</a><small>The review app uses a separate local access key to protect saved work and message approvals.</small></section>
+</main>
+</body>
+</html>

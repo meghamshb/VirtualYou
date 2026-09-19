@@ -1,3 +1,9 @@
+> **Integration update (2026-09-20):** These tools are now reconciled on `leo-dev`
+> with the current shared persona service, formal fallback below ten messages,
+> style revision/history/undo, and the current drafting and approval paths.
+> See [the integration audit](docs/LEO_INTEGRATION.md). The original migration below
+> describes its historical branch baseline; profiles may now start with 0–20 messages.
+
 # Member 2 — Persona layer and prompt assembly
 
 This branch starts from Member 1's phase 1.1 ingestion commit `ab3c90f` and

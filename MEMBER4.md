@@ -1,3 +1,10 @@
+> **Integration update (2026-09-20):** `leo-dev` now reconciles PR #3's ancestry
+> and restores its explicit loopback-only `--voice-test` diagnostics. It retains
+> the newer scoped voice/assistant implementation described below. PR #2's portable
+> persona tools are also integrated while preserving sparse-history and style learning.
+> See [the integration audit](docs/LEO_INTEGRATION.md). The next section records the
+> earlier selective port into `develop`, before this integration.
+
 # Member 4 on develop: voice memos and owner escalation
 
 This selectively integrates the voice and escalation work from

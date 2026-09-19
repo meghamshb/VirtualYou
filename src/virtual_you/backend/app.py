@@ -27,6 +27,8 @@ from virtual_you.backend.providers import make_provider
 from virtual_you.backend.retrieval import RetrievalService
 from virtual_you.backend.store import Store
 from virtual_you.backend.voice import MAX_AUDIO_BYTES, VoiceService, make_transcriber
+from virtual_you.backend.voice_test import require_local_test
+from virtual_you.backend.voice_test import router as voice_test_router
 from virtual_you.backend.workflow import Workflow
 from virtual_you.contracts.assistant import (
     QuestionRequest,
@@ -65,7 +67,7 @@ class BodyLimit:
             chunk = message.get("body", b"")
             chunks.append(chunk)
             size += len(chunk)
-            limit = MAX_AUDIO_BYTES if scope.get("path") == "/api/voice" else 1_000_000
+            limit = MAX_AUDIO_BYTES if scope.get("path") in {"/api/voice", "/dev/voice/transcribe"} else 1_000_000
             if size > limit:
                 response = JSONResponse(
                     {
@@ -203,7 +205,7 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
-        if request.url.path in {"/", "/review"} or request.url.path.startswith("/static/"):
+        if request.url.path in {"/", "/review", "/voice-test"} or request.url.path.startswith("/static/"):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
             )
@@ -222,10 +224,22 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
     static = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static), name="static")
 
-    @app.get("/review", include_in_schema=False)
     @app.get("/", include_in_schema=False)
-    def index():
+    def index(request: Request):
+        if settings.voice_test_mode:
+            require_local_test(request)
+            return FileResponse(static / "voice-test.html")
         return FileResponse(static / "index.html")
+
+    @app.get("/review", include_in_schema=False)
+    def review():
+        return FileResponse(static / "index.html")
+
+    @app.get("/voice-test", include_in_schema=False, dependencies=[Depends(require_local_test)])
+    def voice_test():
+        return FileResponse(static / "voice-test.html")
+
+    app.include_router(voice_test_router)
 
     api = APIRouter(prefix="/api", dependencies=[Depends(owner)])
 
@@ -239,6 +253,7 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
             "projects": app.state.retrieval.project_choices(),
             "voice": {
                 "provider": settings.voice_provider,
+                "model": settings.voice_model if settings.voice_provider == "local" else "scribe_v2",
                 "max_seconds": 180,
                 "max_bytes": MAX_AUDIO_BYTES,
                 "uploads_audio_to_provider": settings.voice_provider == "elevenlabs",

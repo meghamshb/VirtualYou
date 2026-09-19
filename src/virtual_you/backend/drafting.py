@@ -103,19 +103,34 @@ class DraftEngine:
                 422,
             )
         prompt = assemble_prompt(profile, evidence, request.question)
-        raw = await self.provider.generate(
-            task="draft",
-            system=prompt.system,
-            user=prompt.user,
-            schema=DraftReport.model_json_schema(),
-        )
-        try:
-            report = DraftReport.model_validate(raw)
-        except ValidationError as error:
-            raise ServiceError(
-                "invalid_report", "Model did not return all six valid report sections.", 502
-            ) from error
-        self.validate_grounding(report, evidence)
+        payload = json.loads(prompt.user)
+        for attempt in range(2):
+            raw = await self.provider.generate(
+                task="draft",
+                system=prompt.system,
+                user=json.dumps(payload, ensure_ascii=False),
+                schema=DraftReport.model_json_schema(),
+            )
+            try:
+                report = DraftReport.model_validate(raw)
+            except ValidationError as error:
+                raise ServiceError(
+                    "invalid_report", "Model did not return all six valid report sections.", 502
+                ) from error
+            try:
+                self.validate_grounding(report, evidence)
+                break
+            except ServiceError as error:
+                if attempt or error.code not in {
+                    "invalid_citation", "unsupported_claim", "invented_link"
+                }:
+                    raise
+                payload["validation_feedback"] = (
+                    "The previous draft failed " + error.code + ". Regenerate the six sections "
+                    "using only the same supplied evidence. Copy each evidence_id and a short "
+                    "EXACT quote, including punctuation and diff markers. Do not invent facts, "
+                    "references or links. Use the specified unknown text for missing information."
+                )
         parts = []
         # Greeting/sign-off come only from the style profile; they are still reviewed.
         if profile.style.greeting:

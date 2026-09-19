@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir '.[backend]' && useradd --uid 10001 --create-home appuser && mkdir /data && chown appuser /data
+ARG BACKEND_EXTRAS=backend
+RUN pip install --no-cache-dir ".[${BACKEND_EXTRAS}]" && useradd --uid 10001 --create-home appuser && mkdir /data && chown appuser /data
 USER appuser
 ENV VIRTUAL_YOU_DATA_DIR=/data
 VOLUME ["/data"]

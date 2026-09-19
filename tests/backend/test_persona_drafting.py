@@ -167,3 +167,28 @@ def test_sparse_history_is_formal_and_ten_messages_resume_inference(client, coun
     assert profile["seed_message_count"] == count
     assert profile["style"]["formality"] == ("formal" if count < 10 else "casual")
     assert f"Owner-authored messages used: {count}." in profile["soul_md"]
+
+
+def test_report_repairs_a_bad_citation_once_without_changing_evidence(settings, record):
+    import json
+
+    class Repair(DemoProvider):
+        payloads = []
+
+        async def generate(self, **kwargs):
+            result = await super().generate(**kwargs)
+            if kwargs["task"] == "draft":
+                self.payloads.append(json.loads(kwargs["user"]))
+                if len(self.payloads) == 1:
+                    result["result"]["citations"][0]["quote"] = "A fabricated source quote."
+            return result
+
+    provider = Repair()
+    with TestClient(create_app(settings, provider=provider)) as client:
+        client.headers["Authorization"] = "Bearer " + KEY
+        prepare(client, record)
+        draft = new_draft(client)
+        assert draft["status"] == "pending" and draft["approval"] is None
+        assert len(provider.payloads) == 2
+        assert provider.payloads[0]["evidence"] == provider.payloads[1]["evidence"]
+        assert "invalid_citation" in provider.payloads[1]["validation_feedback"]

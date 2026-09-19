@@ -62,7 +62,14 @@ def assemble_prompt(profile: PersonaProfile, evidence, question=None) -> Assembl
         evidence=evidence,
         persona_version=profile.version,
     )
-    assert_safe_serialized(prompt)
+    # Inspect JSON field values before escaping. Already-redacted code such as
+    # token = "[REDACTED]" must not be mistaken for a fresh secret in escaped JSON.
+    assert_safe_serialized({
+        "system": prompt.system,
+        "user": json.loads(prompt.user),
+        "evidence": [item.model_dump(mode="json") for item in prompt.evidence],
+        "persona_version": prompt.persona_version,
+    })
     return prompt
 
 

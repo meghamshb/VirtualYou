@@ -288,3 +288,15 @@ def test_synthetic_demo_proves_identical_facts_and_different_style(tmp_path):
     result = json.loads(process.stdout)
     assert result["same_factual_report"] and result["different_style"]
     assert result["outbound_messages"] == 0
+
+
+def test_prompt_accepts_redacted_quoted_credentials_in_code(client, record):
+    profile = profile_for(client)
+    record["diffs"] = ['+ token = "[REDACTED]"\n+ password = "[REDACTED]"']
+    prompt = assemble_activity_prompt(
+        profile, ActivityRecord.model_validate(record), recipient_id="manager"
+    )
+    evidence = json.loads(prompt.user)["evidence"]
+    from virtual_you.ingest.redact import redact_text
+
+    assert any(item["text"] == redact_text(record["diffs"][0]) for item in evidence)
