@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "session_id": "claude-demo",
+  "source": "claude",
+  "start_state": "Add validation to the payment callback.",
+  "prompts": [
+    "Add validation to the payment callback."
+  ],
+  "reasoning_summary": "Assistant reasoning was present in 1 block; detailed chain-of-thought is intentionally omitted.",
+  "files_changed": [
+    {
+      "path": "src/payments/callback.py",
+      "operation": "modified",
+      "previous_path": null
+    }
+  ],
+  "diffs": [
+    "payload = request.json\n---\npayload = validate(request.json)"
+  ],
+  "tool_calls": [
+    {
+      "call_id": "tool-1",
+      "name": "Edit",
+      "input_summary": "{\"file_path\": \"src/payments/callback.py\", \"new_string\": \"payload = validate(request.json)\", \"old_string\": \"payload = request.json\"}",
+      "result_summary": "Updated src/payments/callback.py",
+      "status": "succeeded",
+      "timestamp": "2026-09-19T01:01:00Z"
+    },
+    {
+      "call_id": "tool-2",
+      "name": "Bash",
+      "input_summary": "{\"command\": \"pytest tests/test_callback.py\"}",
+      "result_summary": "3 passed",
+      "status": "succeeded",
+      "timestamp": "2026-09-19T01:03:00Z"
+    }
+  ],
+  "end_state": "Payment callback validation is implemented and all callback tests pass.",
+  "timestamp_range": {
+    "started_at": "2026-09-19T01:00:00Z",
+    "ended_at": "2026-09-19T01:05:00Z"
+  },
+  "redacted": true
+}

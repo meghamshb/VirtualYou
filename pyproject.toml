@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtual-you-ingest"
+version = "0.1.0"
+description = "Local, redaction-first ingestion pipeline for Virtual You"
+requires-python = ">=3.9"
+dependencies = [
+  "pydantic>=2.8,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "pytest-cov>=5,<7",
+]
+
+[project.scripts]
+virtual-you = "virtual_you.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["virtual_you"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 75
