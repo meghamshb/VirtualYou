@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; }
+main { max-width: 850px; margin: 2rem auto; padding: 0 1rem 4rem; }
+section { border-top: 1px solid #888; margin-top: 2rem; padding-top: 1rem; }
+label { display: block; margin: .75rem 0; }
+input, textarea, select { display: block; box-sizing: border-box; width: 100%; padding: .55rem; margin-top: .3rem; font: inherit; }
+button { padding: .55rem .8rem; margin: .3rem .3rem .3rem 0; cursor: pointer; font: inherit; }
+button:disabled { cursor: default; opacity: .45; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .85rem; }
+small { display: block; margin-top: .25rem; }
+#notice { border: 1px solid #888; padding: .8rem; }
+#warnings, #unsaved { font-size: .9rem; }
+#drafts button { display: block; text-align: left; width: 100%; }
+details { margin-top: 1rem; }

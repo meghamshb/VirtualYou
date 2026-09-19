@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Virtual You — Review</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<body>
+<main>
+  <h1>Virtual You</h1>
+  <p>Draft, review, approve, deliver.</p>
+  <form id="login"><label>Backend API key <input id="key" type="password" autocomplete="off" required></label><button>Connect</button><button type="button" id="logout">Disconnect</button></form>
+  <p id="notice" role="status" aria-live="polite">Enter the key from <code>virtual-you-server show-key</code>. It stays in this tab's memory.</p>
+  <section><h2>Backend</h2><button id="refresh" type="button">Refresh evidence</button><pre id="status">Not connected</pre></section>
+  <section><h2>Recipient style</h2>
+    <form id="persona-form">
+      <label>Recipient ID <input id="recipient" placeholder="manager" required pattern="[\w.-]+" maxlength="80"></label>
+      <label>Display name <input id="display-name" required maxlength="120"></label>
+      <label>10–20 past messages, one per line <textarea id="samples" rows="5" required></textarea></label>
+      <button>Create / update persona</button>
+    </form>
+    <pre id="personas"></pre>
+  </section>
+  <section><h2>New report</h2>
+    <form id="draft-form">
+      <label>Recipient <select id="draft-recipient" required></select></label>
+      <label>Search activity (blank = latest records) <input id="query" maxlength="1000"></label>
+      <label>Session IDs (optional, comma separated) <input id="sessions"></label>
+      <label>Since (optional) <input id="since" type="datetime-local"></label>
+      <label>Platform <select id="platform"><option value="slack">Slack</option><option value="discord">Discord</option></select></label>
+      <label>Destination <input id="target" value="demo-channel" required><small>Slack channel ID, or “default” for the configured Discord webhook.</small></label>
+      <button>Generate draft</button>
+    </form>
+  </section>
+  <section><h2>Drafts</h2><button id="reload" type="button">Reload</button><div id="drafts"></div></section>
+  <section id="review" hidden><h2>Review selected draft</h2>
+    <p id="draft-meta"></p><pre id="warnings"></pre>
+    <label>Message <textarea id="draft-text" rows="16" maxlength="12000"></textarea></label>
+    <p id="unsaved" role="status"></p>
+    <div id="actions"><button id="save-edit">Save edit</button><button id="regenerate">Regenerate</button><button id="approve">Approve this revision</button><button id="reject">Reject</button><button id="deliver">Deliver approved revision</button></div>
+    <details><summary>Evidence and structured report</summary><pre id="evidence"></pre></details>
+    <details><summary>Delivery receipt and audit history</summary><pre id="audit"></pre></details>
+  </section>
+</main>
+</body></html>

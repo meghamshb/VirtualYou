@@ -1,9 +1,34 @@
-# Virtual You — Pathway 1 Ingestion
+# Virtual You
+
+Members 2–3's FastAPI backend is now available: recipient personas, searchable
+activity with a refresh heartbeat, drafting, approval, Slack/Discord delivery,
+and a minimal review page. See **[BACKEND.md](BACKEND.md)** for setup, API
+contracts, Member 1/4 handoffs, deployment, and known limits.
+
+Member 2's local persona tools, portable `soul.md`, prompt API, and two-recipient
+acceptance demo are documented in **[MEMBER2.md](MEMBER2.md)**.
+Paired live-model checks and their current evidence are in
+**[MEMBER2_ACCEPTANCE.md](MEMBER2_ACCEPTANCE.md)**.
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[backend,dev]'
+cp .env.example .env
+.venv/bin/virtual-you-server seed-demo
+.venv/bin/virtual-you-server serve
+```
+
+Open `http://127.0.0.1:8000`; get the local review key with
+`.venv/bin/virtual-you-server show-key`. Demo generation and simulated delivery
+are the defaults. No Slack/Discord messages are sent until live delivery is
+configured and a specific draft is reviewed, approved, and explicitly delivered.
+
+## Pathway 1 Ingestion
 
 This repository currently implements Member 1's ingestion boundary:
 
 ```text
-Claude Code / Cursor / voice transcript
+Claude Code / Cursor / Codex / voice transcript
                 ↓
         source-specific parser
                 ↓
@@ -36,6 +61,10 @@ python3 -m venv .venv
 ## CLI
 
 ### Docker
+
+The root `Dockerfile` builds the ingestion CLI; the separate
+[`Dockerfile.backend`](Dockerfile.backend) builds the web/API backend
+(see [BACKEND.md](BACKEND.md#deployment-and-limits)).
 
 Build the CLI image and view its commands:
 
@@ -196,5 +225,11 @@ Run the acceptance suite:
 .venv/bin/pytest --cov=virtual_you --cov-report=term-missing
 ```
 
-Persona generation, LLM drafting, approval, Slack/Discord delivery,
-speech-to-text, and MCP enrichment are intentionally outside this pathway.
+Persona generation, LLM drafting, approval, and Slack/Discord delivery are
+implemented separately in `virtual_you.backend`; they consume this ingestion
+boundary. Speech-to-text, standing chatbot listeners, and MCP enrichment remain
+outside the ingestion/backend work described here.
+
+## Slack-native headless workflow
+
+The existing Slack agent is integrated under [slack_agent/](slack_agent/WORKFLOW.md). Select a person once in Slack Home to build a persona from your own DM history, automatically prepare activity-based drafts, and review them with Slack buttons and modals. One-time user OAuth is required for private DM history. The Slack process runs the backend heartbeat in-process; no dashboard is required.
