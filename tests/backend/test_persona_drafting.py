@@ -5,7 +5,7 @@ from conftest import KEY, new_draft, persona_payload, prepare
 from fastapi.testclient import TestClient
 
 from virtual_you.backend.app import create_app
-from virtual_you.backend.providers import DemoProvider
+from virtual_you.backend.providers import UNKNOWN, DemoProvider
 
 
 def test_persona_has_private_markdown_and_five_sanitized_examples(client, settings):
@@ -55,7 +55,10 @@ def test_two_personas_change_style_without_changing_factual_report(client, recor
     assert formal["report"]["approach"][
         "citations"
     ]  # phase 1.1 records public assistant approach summaries
-    assert "Approach:" in formal["report"]["approach"]["text"]
+    approach = formal["report"]["approach"]
+    assert approach["text"].startswith("I will inspect the callback and its tests.")
+    assert "Reasoning occurred" not in approach["text"]
+    assert approach["citations"][0]["quote"] in record["reasoning_summary"]
     assert "No blockers" not in formal["text"]
     assert "modified: src/payments/callback.py" in formal["text"]
     assert "FileOperation" not in formal["text"]
@@ -69,6 +72,8 @@ def test_prompt_separates_style_examples_and_evidence(settings, record):
             return await super().generate(**kwargs)
 
     provider = Capturing()
+    record["source"] = "codex"
+    record["source_path"] = "/private/editor-history/codex-session.jsonl"
     with TestClient(create_app(settings, provider=provider)) as client:
         client.headers["Authorization"] = "Bearer " + KEY
         prepare(client, record)
@@ -77,6 +82,26 @@ def test_prompt_separates_style_examples_and_evidence(settings, record):
         assert "style_examples_not_facts" in payload
         assert payload["evidence"][0]["session_id"] == record["session_id"]
         assert "ONLY factual source" in provider.captured["system"]
+        assert all(item["source"] == "codex" for item in payload["evidence"])
+        assert record["source_path"] not in provider.captured["user"]
+        assert "source_path" not in provider.captured["user"]
+        stored = client.post("/api/retrieval/search", json={}).json()["matches"][0]["record"]
+        assert stored["source_path"] == record["source_path"]
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "Reasoning occurred; omitted.",
+        "Assistant reasoning was present in 1 block; detailed chain-of-thought is intentionally omitted.",
+    ],
+)
+def test_omission_marker_alone_is_not_an_approach(client, record, marker):
+    record["reasoning_summary"] = marker
+    prepare(client, record)
+    draft = new_draft(client)
+    assert draft["report"]["approach"] == {"text": UNKNOWN, "citations": []}
+    assert any("Private reasoning was omitted" in warning for warning in draft["warnings"])
 
 
 @pytest.mark.parametrize(

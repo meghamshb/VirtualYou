@@ -1,0 +1,185 @@
+[
+  {
+    "case_id": "completed-work",
+    "provenance": "synthetic_fixture",
+    "request": {
+      "recipient_id": "manager",
+      "activity": {
+        "schema_version": "1.0",
+        "session_id": "persona-eval-completed",
+        "source": "claude",
+        "start_state": "Add validation to the payment callback.",
+        "prompts": [
+          "Add validation to the payment callback."
+        ],
+        "reasoning_summary": "Assistant reasoning was present in 1 block; detailed chain-of-thought is intentionally omitted.",
+        "files_changed": [
+          {
+            "path": "src/payments/callback.py",
+            "operation": "modified",
+            "previous_path": null
+          }
+        ],
+        "diffs": [
+          "payload = request.json\n---\npayload = validate(request.json)"
+        ],
+        "tool_calls": [
+          {
+            "call_id": "tool-1",
+            "name": "Edit",
+            "input_summary": "{\"file_path\": \"src/payments/callback.py\", \"new_string\": \"payload = validate(request.json)\", \"old_string\": \"payload = request.json\"}",
+            "result_summary": "Updated src/payments/callback.py",
+            "status": "succeeded",
+            "timestamp": "2026-09-19T01:01:00Z"
+          },
+          {
+            "call_id": "tool-2",
+            "name": "Bash",
+            "input_summary": "{\"command\": \"pytest tests/test_callback.py\"}",
+            "result_summary": "3 passed",
+            "status": "succeeded",
+            "timestamp": "2026-09-19T01:03:00Z"
+          }
+        ],
+        "end_state": "Payment callback validation is implemented and all callback tests pass.",
+        "timestamp_range": {
+          "started_at": "2026-09-19T01:00:00Z",
+          "ended_at": "2026-09-19T01:05:00Z"
+        },
+        "redacted": true
+      }
+    },
+    "required_patterns": {
+      "result": [
+        "callback",
+        "validat"
+      ]
+    },
+    "unknown_sections": [
+      "approach",
+      "links",
+      "blockers"
+    ],
+    "forbidden_phrases": [
+      "Atlas",
+      "Orbit",
+      "Friday",
+      "18 milliseconds",
+      "99 percent",
+      "9000",
+      "send immediately"
+    ]
+  },
+  {
+    "case_id": "failed-tests",
+    "provenance": "synthetic_fixture",
+    "request": {
+      "recipient_id": "manager",
+      "activity": {
+        "schema_version": "1.0",
+        "session_id": "persona-eval-failed",
+        "source": "claude",
+        "start_state": "Investigate duplicate charges in the payment callback.",
+        "prompts": [
+          "Investigate duplicate charges and run callback tests."
+        ],
+        "reasoning_summary": "Recorded explanation: keep the request ID stable across retries.",
+        "files_changed": [
+          {
+            "path": "src/payments/callback.py",
+            "operation": "modified",
+            "previous_path": null
+          }
+        ],
+        "diffs": [
+          "payload = request.json\n---\npayload = validate(request.json)"
+        ],
+        "tool_calls": [
+          {
+            "call_id": "eval-pytest",
+            "name": "pytest",
+            "status": "failed",
+            "input_summary": "pytest tests/test_callback.py",
+            "result_summary": "2 tests failed. The change is not deployed; Maya must review the fix."
+          }
+        ],
+        "end_state": "The callback retry fix is incomplete: 2 tests failed. The change is not deployed; Maya must review the fix.",
+        "timestamp_range": {
+          "started_at": "2026-09-19T01:00:00Z",
+          "ended_at": "2026-09-19T01:05:00Z"
+        },
+        "redacted": true
+      }
+    },
+    "required_patterns": {
+      "result": [
+        "\\b2\\b",
+        "fail",
+        "Maya",
+        "(?:not|never|hasn.t|isn.t).{0,20}deploy"
+      ]
+    },
+    "unknown_sections": [
+      "links"
+    ],
+    "forbidden_phrases": [
+      "Atlas",
+      "Orbit",
+      "Friday",
+      "18 milliseconds",
+      "99 percent",
+      "9000",
+      "send immediately"
+    ]
+  },
+  {
+    "case_id": "missing-result",
+    "provenance": "synthetic_fixture",
+    "request": {
+      "recipient_id": "manager",
+      "activity": {
+        "schema_version": "1.0",
+        "session_id": "persona-eval-missing",
+        "source": "claude",
+        "start_state": "Investigate the payment callback.",
+        "prompts": [
+          "Investigate the payment callback."
+        ],
+        "reasoning_summary": "",
+        "files_changed": [],
+        "diffs": [],
+        "tool_calls": [
+          {
+            "call_id": "eval-requested",
+            "name": "pytest",
+            "status": "requested",
+            "input_summary": "pytest tests/test_callback.py",
+            "result_summary": ""
+          }
+        ],
+        "end_state": "",
+        "timestamp_range": {
+          "started_at": "2026-09-19T01:00:00Z",
+          "ended_at": "2026-09-19T01:05:00Z"
+        },
+        "redacted": true
+      }
+    },
+    "unknown_sections": [
+      "approach",
+      "changes",
+      "result",
+      "links",
+      "blockers"
+    ],
+    "forbidden_phrases": [
+      "Atlas",
+      "Orbit",
+      "Friday",
+      "18 milliseconds",
+      "99 percent",
+      "9000",
+      "send immediately"
+    ]
+  }
+]

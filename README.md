@@ -8,6 +8,11 @@ activity with a refresh heartbeat, drafting, approval, Slack/Discord delivery,
 and a minimal review page. See **[BACKEND.md](BACKEND.md)** for setup, API
 contracts, Member 1/4 handoffs, deployment, and known limits.
 
+Member 2's local persona tools, portable `soul.md`, prompt API, and two-recipient
+acceptance demo are documented in **[MEMBER2.md](MEMBER2.md)**.
+Paired live-model checks and their current evidence are in
+**[MEMBER2_ACCEPTANCE.md](MEMBER2_ACCEPTANCE.md)**.
+
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -e '.[backend,dev]'
@@ -26,7 +31,7 @@ configured and a specific draft is reviewed, approved, and explicitly delivered.
 This repository currently implements Member 1's ingestion boundary:
 
 ```text
-Claude Code / Cursor / voice transcript
+Claude Code / Cursor / Codex / voice transcript
                 ↓
         source-specific parser
                 ↓
@@ -59,6 +64,10 @@ python3 -m venv .venv
 ## CLI
 
 ### Docker
+
+The root `Dockerfile` builds the ingestion CLI; the separate
+[`Dockerfile.backend`](Dockerfile.backend) builds the web/API backend
+(see [BACKEND.md](BACKEND.md#deployment-and-limits)).
 
 Build the CLI image and view its commands:
 

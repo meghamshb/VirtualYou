@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from virtual_you.contracts.activity import ActivityRecord
+
+# These phrases may be inserted outside the evidence-backed report by Member 3.
+# Keep them non-factual: a model must not smuggle an old claim into a closing.
+GREETINGS = ("", "Hello,", "Hi,", "Hey,", "Hey!", "Hi!", "Dear colleague,")
+SIGN_OFFS = ("", "Thanks", "Thank you", "Regards", "Best regards", "Kind regards", "Best", "Cheers")
+VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 def utcnow() -> str:
@@ -19,7 +34,7 @@ class Contract(BaseModel):
 class PersonaSeed(Contract):
     recipient_id: str = Field(min_length=1, max_length=80, pattern=r"^[\w.-]+$")
     display_name: str = Field(min_length=1, max_length=120)
-    messages: list[str] = Field(default_factory=list, max_length=20)
+    messages: list[VerbatimText] = Field(default_factory=list, max_length=20)
 
     @field_validator("messages")
     @classmethod
@@ -32,12 +47,26 @@ class PersonaSeed(Contract):
 class PersonaStyle(Contract):
     tone: str = Field(min_length=1, max_length=300)
     formality: Literal["casual", "neutral", "formal"]
-    greeting: str = Field(max_length=120)
-    sign_off: str = Field(max_length=120)
+    greeting: str = Field(max_length=120, json_schema_extra={"enum": list(GREETINGS)})
+    sign_off: str = Field(max_length=120, json_schema_extra={"enum": list(SIGN_OFFS)})
     sentence_style: str = Field(min_length=1, max_length=300)
     vocabulary: list[str] = Field(max_length=20)
     punctuation: str = Field(max_length=300)
     emoji: str = Field(max_length=300)
+
+    @field_validator("greeting")
+    @classmethod
+    def generic_greeting(cls, value):
+        if value not in GREETINGS:
+            raise ValueError("Choose a supported generic greeting without names or claims")
+        return value
+
+    @field_validator("sign_off")
+    @classmethod
+    def generic_sign_off(cls, value):
+        if value not in SIGN_OFFS:
+            raise ValueError("Choose a supported generic sign-off without names or claims")
+        return value
 
 
 class PersonaProfile(Contract):
@@ -46,10 +75,10 @@ class PersonaProfile(Contract):
     display_name: str
     version: int = Field(ge=1)
     style: PersonaStyle
-    examples: list[str] = Field(default_factory=list, max_length=5)
+    examples: list[VerbatimText] = Field(default_factory=list, max_length=5)
     created_at: str
     provider: str
-    soul_md: str
+    soul_md: VerbatimText
     seed_message_count: Optional[int] = Field(default=None, ge=0, le=20)
 
 
@@ -109,6 +138,25 @@ class AssembledPrompt(Contract):
     user: str
     evidence: list[Evidence]
     persona_version: int
+
+
+class PromptRequest(Contract):
+    """Member 2 handoff: one normalized record, with no delivery side effects."""
+
+    recipient_id: str = Field(min_length=1, max_length=80, pattern=r"^[\w.-]+$")
+    activity: ActivityRecord
+    question: Optional[str] = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("activity", mode="before")
+    @classmethod
+    def explicitly_redacted(cls, value):
+        if isinstance(value, ActivityRecord):
+            explicit = "redacted" in value.model_fields_set and value.redacted is True
+        else:
+            explicit = isinstance(value, dict) and value.get("redacted") is True
+        if not explicit:
+            raise ValueError("Activity must explicitly declare redacted: true")
+        return value
 
 
 class Citation(Contract):
