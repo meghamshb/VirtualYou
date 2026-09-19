@@ -20,6 +20,10 @@ from virtual_you.mcp.observations import ObservationStore
 from virtual_you.mcp.reconcile import reconcile
 
 try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+try:
     import uvicorn
 except ImportError:
     uvicorn = None
@@ -111,6 +115,8 @@ def main(
     service: Optional[Any] = None,
     discover: Optional[Callable[..., Path]] = None,
 ) -> int:
+    if load_dotenv is not None and not os.environ.get("PYTEST_CURRENT_TEST"):
+        load_dotenv()
     parser = build_parser()
     arguments = parser.parse_args(argv)
     data_directory = (
