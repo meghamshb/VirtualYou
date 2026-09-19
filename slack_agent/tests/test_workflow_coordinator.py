@@ -98,6 +98,18 @@ def selected(coordinator):
     coordinator.select("UFRIEND", True, "initial-selection")
     asyncio.run(coordinator.process_once())
     assert coordinator.state.recipient("UFRIEND")["status"] == "ready"
+    coordinator.backend.retrieval.assign_project(["new-work"], "Project A")
+    coordinator.backend.store.set_metadata(
+        "slack_preferences", {"sources": ["claude"], "paused": False}
+    )
+    value = coordinator.state.recipient("UFRIEND")
+    value.update(
+        projects=["Project A"],
+        reviewed_version=coordinator.backend.store.get_persona(coordinator.profile_id("UFRIEND"))[
+            "version"
+        ],
+    )
+    coordinator.state.save_recipient(value)
 
 
 def draft(coordinator):
@@ -225,6 +237,9 @@ def test_listener_rejects_nonowner_and_reassembles_long_edits(setup):
             self.handlers = {}
 
         def action(self, name):
+            return self.event(name)
+
+        def shortcut(self, name):
             return self.event(name)
 
         def view(self, name):

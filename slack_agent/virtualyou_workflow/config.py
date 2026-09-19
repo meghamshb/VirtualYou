@@ -72,9 +72,10 @@ class Credentials:
 
 
 def private_installation_store():
-    from slack_sdk.oauth.installation_store import FileInstallationStore
+    from .oauth_store import OwnerInstallationStore
 
     root = Path(os.getenv("VIRTUAL_YOU_DATA_DIR", ".virtual-you")) / "slack-installations"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     root.chmod(0o700)
-    return FileInstallationStore(base_dir=str(root))
+    config = SlackSettings.from_env()
+    return OwnerInstallationStore(base_dir=root, owner_id=config.owner_id, team_id=config.team_id)

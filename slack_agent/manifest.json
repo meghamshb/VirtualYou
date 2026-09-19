@@ -15,7 +15,15 @@
     "bot_user": {
       "display_name": "VirtualYou",
       "always_online": true
-    }
+    },
+    "shortcuts": [
+      {
+        "name": "Draft update for request",
+        "type": "message",
+        "callback_id": "vy_reply",
+        "description": "Prepare an approved project update for a selected colleague"
+      }
+    ]
   },
   "oauth_config": {
     "redirect_urls": [
@@ -34,7 +42,8 @@
         "im:read",
         "im:write",
         "users:read",
-        "assistant:write"
+        "assistant:write",
+        "commands"
       ]
     }
   },
@@ -53,7 +62,7 @@
     },
     "is_mcp_enabled": false,
     "org_deploy_enabled": false,
-    "socket_mode_enabled": true,
+    "socket_mode_enabled": false,
     "token_rotation_enabled": false
   }
 }

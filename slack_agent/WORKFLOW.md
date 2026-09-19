@@ -1,57 +1,79 @@
-# VirtualYou: Slack first, headless backend
+# VirtualYou: connect once, review in Slack
 
-Open the VirtualYou app in Slack → Home → **Choose a person**. The app reads the latest 10–20 eligible messages **you wrote** in your existing DM with that person, redacts recognizable secrets, and creates a recipient-specific persona and private `soul.md`. Their replies are excluded. It needs at least ten usable examples; it never invents missing history.
+A bot is a separate Slack identity and cannot read your existing DMs with colleagues. **Connect Slack** requests your user authorization, exchanges Slack's temporary code for tokens, and stores the installation automatically. You never copy messages or user tokens. The user token reads your selected conversation; the bot token delivers an explicitly approved update as VirtualYou. Redaction happens before history samples enter durable jobs or the model. Pattern matching cannot guarantee removal of every confidential detail, so the style review shows retained examples and lets you remove all of them.
 
-Your selection survives restarts. With automatic drafts enabled, the backend refreshes Member 1's activity files every 30 seconds, waits for 60 seconds of quiet, and prepares a draft from new activity in the last 24 hours. It waits at least ten minutes between automatic drafts and holds further drafts while one awaits resolution. Timings are configurable. This refreshes normalized ingestion output; Member 1's ingestion process must continue producing it. Persona history is read on selection or **Refresh style**, not on every heartbeat.
+## User journey
 
-A private card appears in your bot DM with **Approve & send**, **Edit**, **Regenerate**, and **Reject**. Edit opens a Slack modal. Saving or regenerating needs fresh approval. The selected person receives nothing until approval; delivery uses the bot identity, not impersonation of your personal account. Ambiguous delivery requires a manual check in the actual conversation before retrying. Unknown card delivery is not blindly retried; drafts remain accessible in Home.
+1. Click **Connect Slack** in the local companion or open the app's `/slack/install` URL. Authorize the configured account/workspace. An administrator may need to approve the app. The OAuth callback validates state and refuses other owners or workspaces.
+2. Open **VirtualYou → Home → Setup & status**. Enable the normalized work sources you want used in reports. All start off. This controls retrieval; Member 1's ingestion service controls actual collection. The dialog explains local/cloud processing and offers a global pause.
+3. **Organize work** into projects. Use recipient settings to explicitly allow projects, set reporting purpose and minimum cadence. No selected projects means no access, not access to everything.
+4. **Choose a person**. The app collects your latest 10–20 eligible messages in that existing DM, excluding their replies and bot messages, and builds their private `soul.md`. At least ten usable examples are required.
+5. **Review style**. Correct tone, formality, greeting, sign-off, sentence style, vocabulary, punctuation or emoji. Inspect redacted examples and optionally remove all retained snippets. Save to mark this version reviewed. Refreshing history requires another review.
+6. Automatic drafts use only enabled sources and that recipient's projects. A private card offers **Approve & send**, **Edit**, **Regenerate**, and **Reject**. Every delivery requires approval. Changed scope/style or a project reassignment blocks an older draft; reject it and prepare a fresh one.
+7. Optionally enable **reply assistance** for a recipient. On their text message in your existing one-to-one DM, choose **Draft update for request** in Slack's message actions. This prepares an evidence-grounded project report addressing the request, not a free-form chat reply. Review it before bot delivery. No background inbox monitoring or automatic replies are enabled.
 
-Slack cannot spontaneously open a modal: a user click supplies the short-lived trigger. This implementation therefore uses Slack's existing app icon, notifications, cards and modals. It does not add a browser extension or macOS menu-bar app. No separate dashboard or HTTP backend is required in Socket Mode.
+Selection, settings, profiles, drafts and jobs survive restarts. History is refreshed on explicit selection/Refresh style, not every heartbeat. The default activity heartbeat is 30 seconds, quiet period 60 seconds, automatic interval 10 minutes, and reporting window 24 hours. The scheduler holds further drafts while one awaits resolution. A rate-limited history read resumes from a sanitized checkpoint. An uncertain send is never automatically replayed; verify actual delivery before resolving it.
 
-## One-time setup on this Mac
+## Operator setup: once per installation
 
-The Slack CLI is already installed; it is not required to run the background service. Apply `manifest.json` to your Slack app and reinstall/re-authorize after scope changes. Keep App Home enabled. The optional Agents & AI app presentation may depend on your Slack plan; the review workflow uses ordinary Home, DM cards and modals.
+This version is a single-owner development installation. Developer app credentials and hosting are operator responsibilities; end users do not supply Slack access tokens. It is not yet a multi-tenant hosted service.
 
-From `/Users/a/Downloads/virtualyou`:
+Use Python 3.12+ and install from this repository's `slack_agent` folder:
 
 ```bash
-uv pip install --python .venv/bin/python -e '/Users/a/Downloads/MakeNoMistake[backend]' -e '.[test]'
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '..[backend]' -e '.[test]'
 cp .env.sample .env
 chmod 600 .env
 ```
 
-For a fresh checkout of this repository's `slack_agent/` directory, create a Python 3.12 virtual environment there, then install the parent backend and this package (`pip install -e '..[backend]' -e '.[test]'`). The backend dependency is local source, not a similarly named package downloaded from PyPI.
+For the existing standalone `/Users/a/Downloads/virtualyou` copy, install `/Users/a/Downloads/MakeNoMistake[backend]` instead of `..[backend]`. Keep one working copy active at a time.
 
-Fill `.env` once:
+Configure `.env` with the app's `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`, `SLACK_REDIRECT_URI`, and the intended `VIRTUAL_YOU_SLACK_OWNER` / `VIRTUAL_YOU_SLACK_TEAM`. The redirect must be an actual public HTTPS URL ending `/slack/oauth_redirect`, forwarded to this process on port 3000. A stable hosted endpoint or HTTPS tunnel is required; localhost alone is not a Slack OAuth redirect. Do not embed the client secret in a distributed desktop binary.
 
-- `VIRTUAL_YOU_SLACK_OWNER` and `VIRTUAL_YOU_SLACK_TEAM`: your actual member and workspace IDs.
-- `SLACK_APP_TOKEN`: app-level token with `connections:write`; `SLACK_BOT_TOKEN`: installed bot token.
-- `SLACK_USER_TOKEN`: your user OAuth token with `im:read`, `im:history`, `users:read`. A bot token cannot read your existing human-to-human DMs. Only connect history you have permission to access. Do not commit tokens.
-- `VIRTUAL_YOU_ACTIVITY_DIR`: absolute directory containing Member 1's normalized `activity-*.json` output.
-- Model settings: `demo` is an offline extractive preview. For generated prose, use `openai` with a model and `OPENAI_API_KEY`, or `ollama` with a locally available model. See the parent `BACKEND.md`.
-- `VIRTUAL_YOU_LIVE_DELIVERY=false` initially simulates recipient delivery. Review cards still go to your own bot DM when connected. Set `true` after checking the setup to enable approved recipient delivery.
+Update your Slack app from `manifest.json`, replacing all example URLs. For the recommended HTTP/OAuth entry point, **disable Socket Mode** and route events/interactions to `/slack/events`. The message shortcut needs the added `commands` scope; reinstall/re-authorize after manifest changes. Keep App Home enabled. The basic workflow uses standard Home, cards and modals; optional agent presentation can depend on the Slack plan.
 
-Run `.venv/bin/python app.py`, open VirtualYou Home in Slack, and choose a person. Stop that foreground process before installing the service:
+Run `.venv/bin/python app_oauth.py` and visit `/slack/install`. This single process hosts OAuth/events and the backend heartbeat. Leave `SLACK_USER_TOKEN`, `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` blank in HTTP mode: OAuth obtains bot and user tokens. Installations are restricted to the configured owner/workspace, stored under the private data directory with directory mode 700 and file mode 600. Local disk encryption is separate. Token rotation is not enabled; revoked/expired access requires reconnecting.
+
+Set `VIRTUAL_YOU_ACTIVITY_DIR` to Member 1's normalized output directory. The worker never reads raw editor logs. For automatic project assignment, use:
+
+```text
+activities/
+  project-alpha/activity-session-1.json
+  project-beta/activity-session-2.json
+```
+
+Each direct subfolder becomes a project; new files inherit it automatically. Symlinked files/project directories are rejected. Flat `activity-*.json` files remain supported and can be assigned using Organize work. No changes to the ActivityRecord contract are required. Keep session IDs unique. Project-subfolder assignment is authoritative on file refresh; move the file to change its project permanently. Until ingestion is arranged this way, flat-directory new sessions need explicit assignment.
+
+Choose `VIRTUAL_YOU_LLM_PROVIDER=openai` plus a model/API key, or `ollama` plus a locally available model, for actual generated prose. `demo` is an offline extractive preview. `VIRTUAL_YOU_LIVE_DELIVERY=false` simulates recipient delivery; connected Slack still receives private owner review cards. Set it to `true` only when approved bot delivery is wanted. See the parent `BACKEND.md` for model and ingestion options.
+
+## Headless startup and local menu-bar app
+
+Stop any foreground copy before installing the login service:
 
 ```bash
-.venv/bin/python scripts/macos_service.py install
+.venv/bin/python scripts/macos_service.py install --mode oauth
 .venv/bin/python scripts/macos_service.py status
-# Later, to stop and remove login startup while preserving data:
 .venv/bin/python scripts/macos_service.py uninstall
 ```
 
-The login service reads `.env`, starts at login, and restarts after process failure. This Mac must be awake, logged in, and connected. For 24/7 operation, host the process and ingestion on an always-on machine. Do not run a second backend or Slack process against the same data directory. Keep `.virtual-you/` private and persistent. It contains personas, drafts, sanitized queued examples and OAuth installations; completed/failed history jobs drop their sample payloads.
+The Mac must be logged in, awake and connected, and the HTTPS endpoint must remain available. For 24/7 operation host the worker/ingestion on an always-on machine. Run one worker per data directory. Quitting the menu-bar companion does not stop the backend; choose Stop backend for that.
 
-## Optional browser OAuth instead of copying the user token
+Build the local companion with Xcode command-line tools:
 
-`app_oauth.py` supports one-time browser authorization and persists the configured owner's installation. Configure client ID/secret, signing secret, and a real HTTPS `SLACK_REDIRECT_URI` ending `/slack/oauth_redirect`. Replace the manifest's example URLs with your hosted/tunneled URLs. For HTTP mode disable Socket Mode, route events and interactions to `/slack/events`, and run `.venv/bin/python app_oauth.py` on port 3000. Visit `/slack/install` and authorize as the configured owner. The OAuth HTTP process also runs the headless worker.
+```bash
+.venv/bin/python scripts/build_macos_app.py
+open dist/VirtualYou.app
+```
 
-Alternatively complete OAuth once, stop the HTTP process, re-enable Socket Mode and use `app.py` with the same persistent data directory. A valid bot token and app token are still needed for Socket Mode startup; the worker reads the saved owner's user token. Run exactly one entry point. This is a single-owner installation, not a multi-tenant SaaS onboarding service. Expired/revoked tokens require reconnecting; automatic OAuth token rotation is not implemented.
+Its menu offers Open Slack, Connect Slack, setup/service status, Start backend at login, and Stop backend. The bundle is ad-hoc signed for local development and points to this checkout's Python environment. Keep both in place. It is **not** a self-contained downloadable installer: distribution still needs a bundled runtime, a hosted OAuth service or deliberate deployment model, Developer ID signing/notarization, updates, and multi-user account isolation.
 
-## Team integration and validation
+The legacy `app.py` Socket Mode entry point remains available for operators, but requires an app-level token and a bot token at startup. HTTP/OAuth is the default token-free user onboarding path. Never run both against one data directory.
 
-The tracked copy lives under `slack_agent/` on `phase-1,-soul+Draftending-A/D`. The existing standalone `/Users/a/Downloads/virtualyou` folder is updated too. Avoid developing independently in both copies. The original unrestricted MCP agent modules remain as reference; default listener registration uses only the approval workflow.
+## Validation and current limits
 
-Run `.venv/bin/python -m pytest` in this folder and the parent repository's backend tests separately. Tests use fake Slack clients and model/delivery transports; passing tests does not prove installation permissions in your real workspace. No real history was read and no real Slack messages were sent during implementation.
+Tests use fake Slack and model/delivery transports, including a real Bolt OAuth callback with mocked code exchange, state-replay rejection, owner/scope checks, source/project filtering, style review, stale-policy approval blocking, and reply opt-in. No actual workspace authorization or live messages were used in development. The menu-bar app can be built/validated locally without granting Slack access.
 
-References: [Slack CLI installation](https://docs.slack.dev/tools/slack-cli/guides/installing-the-slack-cli-for-mac-and-linux), [Slack agents](https://docs.slack.dev/ai/developing-agents), [history token access](https://docs.slack.dev/reference/methods/conversations.history/), [native modals](https://docs.slack.dev/surfaces/modals/).
+Refresh uses lexical RAG (SQLite FTS), not embeddings. Project policies scope retrieved evidence; they cannot automatically classify secrets inside arbitrary human edits. Review every outbound draft. Profile removal of snippets updates the current profile and soul export; system backups are outside app control. Group DMs, unsolicited inbox monitoring, Discord onboarding, and a general free-form reply engine are not implemented.
+
+References: [Slack OAuth](https://docs.slack.dev/authentication/installing-with-oauth/), [history token access](https://docs.slack.dev/reference/methods/conversations.history/), [Slack modals](https://docs.slack.dev/surfaces/modals/).

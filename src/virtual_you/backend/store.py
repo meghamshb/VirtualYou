@@ -29,6 +29,9 @@ class Store:
                 CREATE VIRTUAL TABLE IF NOT EXISTS activity_search USING fts5(
                     search_text, tokenize='unicode61'
                 );
+                CREATE TABLE IF NOT EXISTS activity_projects (
+                    session_id TEXT PRIMARY KEY, project_id TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS personas (
                     recipient_id TEXT PRIMARY KEY, payload TEXT NOT NULL
                 );

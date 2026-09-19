@@ -2,8 +2,10 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urljoin
 
 from slack_sdk import WebClient
 from virtual_you.backend.errors import ServiceError
@@ -18,12 +20,13 @@ from virtual_you.contracts.reporting import (
 )
 from virtual_you.ingest.redact import redact_text
 
+from .experience import Experience
 from .history import HistoryCollector, RetryLater, slack_call
 from .state import SlackState
 from .views import draft_blocks, home_view
 
 
-class Coordinator:
+class Coordinator(Experience):
     def __init__(self, backend, config, credentials, *, client_factory=WebClient):
         self.backend, self.config, self.credentials = backend, config, credentials
         self.state = SlackState(backend.store)
@@ -86,16 +89,21 @@ class Coordinator:
     def profile_id(self, recipient):
         return f"{self.config.team_id}.{self.config.owner_id}.{recipient}"
 
-    def scope(self):
+    def scope(self, value=None):
         return RetrievalRequest(
-            since=datetime.now(timezone.utc) - timedelta(hours=self.config.lookback_hours), limit=10
+            since=datetime.now(timezone.utc) - timedelta(hours=self.config.lookback_hours),
+            limit=10,
+            project_ids=(value or {}).get("projects", []),
+            sources=self.preferences()["sources"],
         )
 
-    def evidence_state(self):
-        rows = self.backend.retrieval.search(self.scope())
+    def evidence_state(self, value=None):
+        rows = self.backend.retrieval.search(self.scope(value))
         return {row["record"]["session_id"]: row["record_hash"] for row in rows}, rows
 
     def home(self, install_url=None):
+        if not install_url and os.getenv("SLACK_REDIRECT_URI"):
+            install_url = urljoin(os.environ["SLACK_REDIRECT_URI"], "/slack/install")
         drafts = []
         for draft in self.state.cards():
             link = self.state.draft_link(draft["id"])
@@ -107,6 +115,7 @@ class Coordinator:
             connected=self.credentials.connected(),
             live=self.backend.settings.live_delivery,
             install_url=install_url,
+            status=self.status_summary(),
             error=self.state.latest_error(),
         )
 
@@ -156,6 +165,8 @@ class Coordinator:
             error=None,
             persona_version=profile.version,
             sample_count=len(samples),
+            human_channel=job["payload"].get("history", {}).get("channel"),
+            reviewed_version=None,
             bot_channel=conversation["channel"]["id"],
         )
         self.state.save_recipient(value)
@@ -173,7 +184,10 @@ class Coordinator:
             )
         if self.state.open_draft(recipient) and not job["payload"].get("draft_id"):
             return
-        seen, rows = self.evidence_state()
+        self.require_ready(value)
+        if job["payload"].get("reply") and not value.get("reply_enabled"):
+            raise ServiceError("reply_disabled", "Reply assistance is disabled for this person.")
+        seen, rows = self.evidence_state(value)
         if not rows:
             raise ServiceError(
                 "nothing_to_report", "No recent coding activity has been synced yet."
@@ -192,10 +206,15 @@ class Coordinator:
             draft = await self.backend.workflow.create(
                 DraftRequest(
                     recipient_id=self.profile_id(recipient),
-                    retrieval=self.scope(),
+                    retrieval=self.scope(value),
+                    question=job["payload"].get("question") or value.get("purpose") or None,
                     destination={"platform": "slack", "target": value["bot_channel"]},
                 ),
                 draft_id=draft_id,
+            )
+        if not self.backend.store.metadata("slack_draft_policy:" + draft["id"]):
+            self.backend.store.set_metadata(
+                "slack_draft_policy:" + draft["id"], self.policy_fingerprint(value)
             )
         self.state.bind_draft(draft["id"], recipient)
         value.update(seen=seen, last_draft_at=time.time(), error=None)
@@ -241,6 +260,8 @@ class Coordinator:
     async def action(self, job):
         data = job["payload"]
         self.state.draft_link(data["id"])
+        if data["action"] not in {"reject", "reconcile"} and not data.get("applied"):
+            self.require_current_policy(data["id"])
         revision = RevisionRequest(expected_revision=data["revision"])
         workflow = self.backend.workflow
         if data.get("applied"):
@@ -290,6 +311,14 @@ class Coordinator:
                 await self.create_draft(job)
             elif job["kind"] == "action":
                 await self.action(job)
+            elif job["kind"] in {
+                "preferences",
+                "projects",
+                "policy",
+                "style_review",
+                "check_connection",
+            }:
+                await asyncio.to_thread(self.apply_experience, job)
             elif job["kind"] == "toggle":
                 value = self.state.recipient(job["payload"]["recipient"])
                 value["automatic"] = job["payload"]["automatic"]
@@ -319,13 +348,8 @@ class Coordinator:
         refresh = self.backend.store.metadata("heartbeat") or {}
         if refresh.get("state") != "healthy":
             return
-        seen, rows = self.evidence_state()
-        if not rows:
+        if self.preferences().get("paused"):
             return
-        newest = max(datetime.fromisoformat(r["indexed_at"]).timestamp() for r in rows)
-        if time.time() - newest < self.config.quiet_seconds:
-            return
-        fingerprint = hashlib.sha256(json.dumps(seen, sort_keys=True).encode()).hexdigest()
         for value in self.state.recipients():
             if (
                 not value.get("automatic")
@@ -333,10 +357,25 @@ class Coordinator:
                 or self.state.open_draft(value["recipient"])
             ):
                 continue
-            if time.time() - value.get("last_draft_at", 0) < self.config.minimum_interval_seconds:
+            try:
+                self.require_ready(value)
+            except ServiceError:
+                continue
+            seen, rows = self.evidence_state(value)
+            if not rows:
+                continue
+            newest = max(datetime.fromisoformat(r["indexed_at"]).timestamp() for r in rows)
+            if time.time() - newest < self.config.quiet_seconds:
+                continue
+            if time.time() - value.get("last_draft_at", 0) < value.get(
+                "interval_seconds", self.config.minimum_interval_seconds
+            ):
                 continue
             if not any(value.get("seen", {}).get(key) != digest for key, digest in seen.items()):
                 continue
+            fingerprint = hashlib.sha256(
+                (json.dumps(seen, sort_keys=True) + self.policy_fingerprint(value)).encode()
+            ).hexdigest()
             self.state.enqueue(
                 "draft",
                 {"recipient": value["recipient"]},

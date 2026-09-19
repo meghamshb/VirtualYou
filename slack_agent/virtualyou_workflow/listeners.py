@@ -266,4 +266,7 @@ def register(app, coordinator=None):
     def mention(event):
         return
 
+    from .setup_listeners import register_setup
+
+    register_setup(app, coordinator, event_key)
     return coordinator

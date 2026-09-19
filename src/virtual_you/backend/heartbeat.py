@@ -31,6 +31,7 @@ class Heartbeat:
                 if not self.settings.activity_dir.is_dir():
                     raise OSError("Activity directory unavailable")
                 paths = sorted(self.settings.activity_dir.glob("activity-*.json"))
+                paths += sorted(self.settings.activity_dir.glob("*/activity-*.json"))
             except OSError:
                 paths = []
                 errors.append({"source": "local", "code": "directory_unavailable"})
@@ -38,7 +39,11 @@ class Heartbeat:
                 origin = "file:" + str(path)
                 observed.add(origin)
                 try:
-                    if path.is_symlink() or path.stat().st_size > MAX_RECORD_BYTES:
+                    if (
+                        path.is_symlink()
+                        or path.parent.is_symlink()
+                        or path.stat().st_size > MAX_RECORD_BYTES
+                    ):
                         raise ValueError("Invalid activity file")
                     raw = await asyncio.to_thread(path.read_bytes)
                     digest = hashlib.sha256(raw).hexdigest()
@@ -47,6 +52,8 @@ class Heartbeat:
                         continue
                     payload = json.loads(raw)
                     changed += int(self.retrieval.upsert(payload, origin))
+                    if path.parent != self.settings.activity_dir:
+                        self.retrieval.assign_project([payload["session_id"]], path.parent.name)
                     self.fingerprints[origin] = digest
                 except (OSError, ValueError, ServiceError, IngestionError):
                     # Do not show filenames, raw validation errors, or record contents.
