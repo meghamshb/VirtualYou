@@ -13,6 +13,13 @@ from virtual_you.contracts.reporting import utcnow
 
 class Store:
     def __init__(self, path: Path):
+        # SQLite 3.51.0/1 can deadlock when threads close WAL connections.
+        # Fixed upstream in 3.51.2; fail before starting an unresponsive listener.
+        if (3, 51, 0) <= sqlite3.sqlite_version_info < (3, 51, 2):
+            raise RuntimeError(
+                "SQLite 3.51.0/1 has a concurrent-connection deadlock. "
+                "Use a Python runtime with SQLite 3.51.2 or newer."
+            )
         self.path = path
         with self.connection() as db:
             db.execute("PRAGMA journal_mode=WAL")

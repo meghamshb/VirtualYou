@@ -88,3 +88,13 @@ auto review, disabling during generation/final delivery checks, stale enable job
 membership and evidence changes, loop prevention, duplicate sends, restart
 recovery, and group-specific progress watermarks. Existing backend/DM tests run
 alongside the new tests. Automated Slack calls use fakes and send no real messages.
+
+## Runtime requirement
+
+Do not run the listener on SQLite 3.51.0 or 3.51.1: they have a concurrent WAL
+connection-close deadlock, fixed in 3.51.2. The backend rejects these versions at
+startup. Check the actual interpreter with
+`python -c 'import sqlite3; print(sqlite3.sqlite_version)'`; installing a newer
+Python package alone does not update the SQLite library linked to that interpreter.
+The local service uses an isolated Python 3.13.14 runtime with SQLite 3.53.1.
+Upstream fix: https://sqlite.org/releaselog/3_51_2.html

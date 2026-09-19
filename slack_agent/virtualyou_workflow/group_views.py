@@ -10,6 +10,16 @@ from .setup_views import choices, modal, multi_select, text_input
 from .views import plain, section
 
 
+def group_reason(reason):
+    if reason == "missing_evidence":
+        return (
+            "No supported project answer was found. Use Ask a VirtualYou again with "
+            "a specific question, such as: What changed in the VirtualYou ingestion pipeline? "
+            "A greeting such as 'Yo' does not identify work to report. No reply was sent."
+        )
+    return reason
+
+
 def group_blocks(groups):
     blocks = [
         section(
@@ -41,7 +51,7 @@ def group_blocks(groups):
     for request in groups.requests()[:8]:
         blocks.append(
             section(
-                f"Group question in {request['channel']} from {request['requester']} · {request['state']}\n{request['question']}\n{request.get('reason', '')}"
+                f"Group question in {request['channel']} from {request['requester']} · {request['state']}\n{request['question']}\n{group_reason(request.get('reason', ''))}"
             )
         )
         if request["state"] == "pending":

@@ -55,10 +55,13 @@ def main():
     logs = root / ".virtual-you" / "service-logs"
     logs.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.parent.mkdir(parents=True, exist_ok=True)
+    runtime = root / ".venv-runtime" / "bin" / "python"
+    if not runtime.exists():
+        runtime = root / ".venv" / "bin" / "python"
     payload = {
         "Label": LABEL,
         "ProgramArguments": [
-            str(root / ".venv" / "bin" / "python"),
+            str(runtime),
             str(root / ("app.py" if args.mode == "socket" else "app_oauth.py")),
         ],
         "WorkingDirectory": str(root),
