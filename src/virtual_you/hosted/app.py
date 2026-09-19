@@ -203,9 +203,22 @@ def create_relay(settings=None, *, transport=None, runtimes_factory=Runtimes):
             "public_origin": settings.base_url,
         }
 
+    def readiness():
+        checks = {
+            "slack_oauth": oauth.configured("slack"),
+            "slack_events": bool(settings.signing_secret),
+            "model": bool(settings.openai_key),
+        }
+        return {"ready": all(checks.values()), "checks": checks, "public_origin": settings.base_url}
+
+    @app.get("/readyz")
+    def ready():
+        status = readiness()
+        return JSONResponse(status, status_code=200 if status["ready"] else 503)
+
     @app.post("/v1/devices/pair")
     def pair():
-        if not oauth.configured("slack"):
+        if not readiness()["ready"]:
             raise OAuthFailure("service_not_configured")
         device_code, public = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
         code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))

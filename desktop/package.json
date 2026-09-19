@@ -11,14 +11,16 @@
     "desktop": "npm run build && electron .",
     "build": "tsc --noEmit && vite build && npm run build:electron",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/check-customer.cases.mjs",
     "package:mac": "npm run build && electron-builder --mac --dir",
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint src shared electron tests",
     "format": "prettier --write src shared electron tests vite.config.ts",
     "test:electron": "npm run build && node scripts/smoke-electron.mjs",
     "build:collector": "node scripts/bundle-collector.mjs",
-    "package:customer": "npm run build:collector && npm run build && electron-builder --mac --dir"
+    "package:customer": "npm run check:customer && npm run build:collector && npm run build && electron-builder --mac --dir",
+    "check:customer": "node scripts/customer-preflight.mjs",
+    "release:customer": "node scripts/customer-preflight.mjs --release && npm run build:collector && npm run build && electron-builder --config electron-builder.customer.cjs --mac --publish never"
   },
   "build": {
     "appId": "com.virtualyou.desktop",

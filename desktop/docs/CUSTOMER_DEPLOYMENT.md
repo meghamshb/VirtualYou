@@ -128,3 +128,44 @@ Official references used:
 - https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
 - https://developer.atlassian.com/cloud/jira/software/oauth-2-3lo-apps/
 - https://developers.google.com/identity/protocols/oauth2/web-server
+
+## Release gates and HTTPS deployment
+
+`/healthz` proves the process is alive. `/readyz` returns 503 until Slack OAuth,
+Slack request verification and the model service are configured. It checks configuration,
+not provider-console callback registration or the validity of external credentials.
+Optional integrations do not block Slack onboarding. Pairing is refused until ready.
+The desktop also checks readiness and requires secure storage and a working bundled
+collector before offering Connect Slack.
+
+On the selected Docker server, point your service domain's DNS at the server and
+allow inbound ports 80 and 443. Keep your filled operator env file private (mode 600):
+
+```sh
+docker compose --env-file /secure/customer.env -f deploy/customer.compose.yaml --profile production up -d --build --wait
+```
+
+The production profile runs Caddy in front of the relay, obtains/renews TLS certificates,
+and persists certificates and customer data in separate Docker volumes. It does not
+create a server, purchase a domain or register provider applications. Back up the
+customer data volume **and** the encryption key; never regenerate that key on restart.
+Do not scale this SQLite deployment beyond one relay process.
+
+After activating provider applications and checking their callbacks, set
+`desktop/service.json` to the same HTTPS origin. `npm run check:customer` verifies
+that origin against the live `/readyz` response. Packaging stops on a blank URL,
+unreachable service, missing required settings or mismatched public origin.
+
+- `npm run package:customer`: local packaged-app validation, not a customer release.
+- `npm run release:customer`: DMG + ZIP with enforced signing and notarization.
+  Configure a Developer ID Application certificate in Keychain (or `CSC_LINK`),
+  and Apple notarization credentials as supported by electron-builder. The release
+  preflight refuses missing signing/notarization configuration. Apple Development
+  certificates are not accepted as proof of distribution readiness.
+- Verify the resulting app with `codesign --verify --deep --strict`,
+  `xcrun stapler validate` and `spctl --assess --type exec` before publishing it.
+  A successful local build is not a signed/notarized release.
+
+References: [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https),
+[electron-builder signing](https://www.electron.build/docs/features/code-signing/),
+[notarization](https://www.electron.build/v26/docs/notarization/).

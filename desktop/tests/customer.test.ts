@@ -16,7 +16,9 @@ function client() {
     },
     { read: async () => Buffer.from("{}"), write: async () => {} },
   );
-  return new Customer("https://relay.test", vault);
+  const result = new Customer("https://relay.test", vault);
+  Object.assign(result, {collectorReady: true});
+  return result;
 }
 describe("customer IPC and device boundary", () => {
   it("rejects extra paths, arbitrary URLs, and executable commands", () => {
@@ -78,5 +80,23 @@ describe("customer IPC and device boundary", () => {
       client().act({ type: "decision", id: "one", revision: 1, approve: true }),
     ).rejects.toThrow();
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("customer readiness", () => {
+  it("does not present an unhealthy service as ready", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ready: false}, {status: 503}));
+    const state = await client().act({type: "status"}) as {configured: boolean; serviceReady: boolean; error: string};
+    expect(state.configured).toBe(true);
+    expect(state.serviceReady).toBe(false);
+    expect(state.error).toContain("temporarily unavailable");
+  });
+  it("refuses pairing when the bundled collector cannot run", async () => {
+    const c = client();
+    Object.assign(c, {collectorReady: false});
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    await expect(c.act({type: "pair"})).rejects.toThrow("complete customer app");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

@@ -44,6 +44,7 @@ export interface CustomerStatus {
     privateStorage: boolean;
   };
   configured: boolean;
+  serviceReady: boolean;
   connected: boolean;
   setup: SetupState | null;
   projects: Choice[];

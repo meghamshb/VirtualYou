@@ -29,8 +29,13 @@ class Vault:
 
     @contextmanager
     def db(self):
-        with self.lock, sqlite3.connect(self.path, timeout=10) as db:
-            yield db
+        with self.lock:
+            db = sqlite3.connect(self.path, timeout=10)
+            try:
+                with db:
+                    yield db
+            finally:
+                db.close()
 
     def put(self, kind, key, value, ttl=0):
         # Encrypt all payloads, including pending grants. Identifiers are hashes.

@@ -170,7 +170,7 @@ export default function CustomerApp() {
             </p>
             <Button
               variant="primary"
-              disabled={busy}
+              disabled={busy || !status.serviceReady || !status.system.collectorReady || !status.system.privateStorage}
               onClick={() => void run({ type: "pair" })}
             >
               Connect Slack <ArrowRight size={16} />

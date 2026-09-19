@@ -169,7 +169,7 @@ export class Customer {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       redirect: "error",
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(route === "/readyz" ? 10000 : 120000),
     }).catch(() => {
       throw Error(
         "Cannot reach VirtualYou. Check your connection and try again.",
@@ -318,6 +318,17 @@ export class Customer {
     const a = customerAction.parse(raw);
     switch (a.type) {
       case "status": {
+        let serviceReady = false;
+        let readinessError = "";
+        if (this.base && !this.credential) {
+          try {
+            const health = await this.request<{ready: boolean; public_origin: string}>("/readyz");
+            serviceReady = health.ready === true && health.public_origin === this.base;
+            if (!serviceReady) readinessError = "VirtualYou setup is temporarily unavailable. Please try again later.";
+          } catch {
+            readinessError = "VirtualYou setup is temporarily unavailable. Please try again later.";
+          }
+        } else serviceReady = !!this.credential;
         let setup: SetupState | null = null;
         if (this.credential) {
           setup = await this.request<SetupState>("/v1/setup");
@@ -325,6 +336,7 @@ export class Customer {
         }
         return {
           configured: !!this.base,
+          serviceReady,
           system: {
             supported: process.platform === "darwin",
             collectorReady: this.collectorReady,
@@ -339,7 +351,7 @@ export class Customer {
                 expires_at: this.pending.expires_at,
               }
             : null,
-          error: this.serviceError,
+          error: readinessError || this.serviceError,
           collecting: this.busy,
           drafts: setup?.projects?.length
             ? await this.request("/v1/drafts")
@@ -348,6 +360,8 @@ export class Customer {
         };
       }
       case "pair": {
+        if (!this.vault.available()) throw Error("Unlock secure device storage before connecting Slack.");
+        if (!this.collectorReady) throw Error("Install the complete customer app before connecting Slack.");
         this.serviceError = "";
         this.pending = await this.request<Pair>("/v1/devices/pair", {});
         await this.save();

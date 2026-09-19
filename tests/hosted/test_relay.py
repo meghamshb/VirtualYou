@@ -277,3 +277,23 @@ def test_jira_and_drive_real_oauth_adapters(tmp_path, which):
         )
         item = next(i for i in client.get("/v1/setup").json()["integrations"] if i["id"] == which)
         assert item["connected"]
+
+
+def test_readiness_blocks_pairing_when_essential_services_missing(tmp_path):
+    config = settings(tmp_path)
+    config.openai_key = ''
+    config.signing_secret = ''
+    with TestClient(create_relay(config, runtimes_factory=NoRuntime)) as client:
+        assert client.get('/healthz').status_code == 200
+        readiness = client.get('/readyz')
+        assert readiness.status_code == 503
+        assert readiness.json()['checks'] == {'slack_oauth': True, 'slack_events': False, 'model': False}
+        assert client.post('/v1/devices/pair').status_code == 409
+
+
+def test_optional_integrations_do_not_block_slack_onboarding(tmp_path):
+    config = settings(tmp_path)
+    config.clients = {'slack': config.clients['slack']}
+    with TestClient(create_relay(config, runtimes_factory=NoRuntime)) as client:
+        assert client.get('/readyz').json()['ready'] is True
+        assert client.post('/v1/devices/pair').status_code == 200
