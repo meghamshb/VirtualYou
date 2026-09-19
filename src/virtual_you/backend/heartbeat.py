@@ -5,21 +5,31 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 
 import httpx
 
 from virtual_you.backend.collection import Collector
 from virtual_you.backend.errors import ServiceError
+from virtual_you.contracts.activity import ActivityRecord
 from virtual_you.contracts.reporting import utcnow
 from virtual_you.ingest.errors import IngestionError
+from virtual_you.ingest.redact import redact_value
+from virtual_you.mcp.jira import (
+    JiraClient,
+    RestJiraClient,
+    enrich_jira,
+    jira_enabled,
+)
 
 MAX_RECORD_BYTES = 1_000_000
 MAX_FEED_BYTES = 10_000_000
 
 
 class Heartbeat:
-    def __init__(self, settings, store, retrieval, client):
+    def __init__(self, settings, store, retrieval, client, jira_client=None):
         self.settings, self.store, self.retrieval, self.client = settings, store, retrieval, client
+        self.jira_client: JiraClient | None = jira_client
         self.lock = asyncio.Lock()
         self.fingerprints = {}
         self.collector = Collector(settings)
@@ -29,6 +39,9 @@ class Heartbeat:
             started = utcnow()
             changed, skipped, removed, errors = 0, 0, 0, []
             observed = set()
+            jira_client = self.jira_client
+            if jira_client is None and jira_enabled():
+                jira_client = RestJiraClient.from_env(os.environ)
             collection = await asyncio.to_thread(self.collector.collect)
             errors.extend(collection["errors"])
             try:
@@ -51,10 +64,16 @@ class Heartbeat:
                         raise ValueError("Invalid activity file")
                     raw = await asyncio.to_thread(path.read_bytes)
                     digest = hashlib.sha256(raw).hexdigest()
-                    if self.fingerprints.get(origin) == digest:
+                    if self.fingerprints.get(origin) == digest and jira_client is None:
                         skipped += 1
                         continue
                     payload = json.loads(raw)
+                    if jira_client is not None:
+                        payload = await asyncio.to_thread(
+                            self._refresh_jira,
+                            payload,
+                            jira_client,
+                        )
                     changed += int(await asyncio.to_thread(self.retrieval.upsert, payload, origin))
                     if path.parent != self.settings.activity_dir:
                         self.retrieval.assign_project([payload["session_id"]], path.parent.name)
@@ -93,6 +112,12 @@ class Heartbeat:
                         try:
                             if len(json.dumps(record)) > MAX_RECORD_BYTES:
                                 raise ValueError("Record too large")
+                            if jira_client is not None:
+                                record = await asyncio.to_thread(
+                                    self._refresh_jira,
+                                    record,
+                                    jira_client,
+                                )
                             changed += int(await asyncio.to_thread(self.retrieval.upsert, record, "feed"))
                         except (ValueError, ServiceError, IngestionError):
                             errors.append({"source": "feed", "code": "invalid_activity_record"})
@@ -116,6 +141,22 @@ class Heartbeat:
             }
             self.store.set_metadata("heartbeat", status)
             return status
+
+    @staticmethod
+    def _refresh_jira(payload, client):
+        if not isinstance(payload, dict) or payload.get("redacted") is not True:
+            raise ServiceError(
+                "unredacted_record", "Only explicitly redacted ActivityRecords are accepted.", 422
+            )
+        token = (os.environ.get("JIRA_API_TOKEN") or "").strip()
+        secrets = [token] if token else []
+        record = ActivityRecord.model_validate(redact_value(payload, extra_secrets=secrets))
+        return enrich_jira(
+            record,
+            client=client,
+            extra_secrets=secrets,
+            enabled=True,
+        ).model_dump(mode="json")
 
     async def run(self):
         while True:

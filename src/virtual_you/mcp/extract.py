@@ -3,7 +3,7 @@
 import re
 from typing import Optional, Sequence
 
-from virtual_you.contracts.activity import ActivityRecord, ToolCall
+from virtual_you.contracts.activity import ActivityRecord
 
 HEAD_SHA_RE = re.compile(r"(?im)^HEAD\s+([0-9a-f]{7,40})\b")
 SHA_RE = re.compile(r"\b([0-9a-f]{7,40})\b")
@@ -11,6 +11,18 @@ TESTS_PASSED_RE = re.compile(
     r"(?i)\b(tests?\s+passed|all tests passed|ci (is )?green|checks? passed)\b"
 )
 PR_RE = re.compile(r"(?i)\b(?:pull request|pr)\s*#?(\d+)\b")
+JIRA_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
+JIRA_DONE_RE = re.compile(r"(?i)\b(done|finished|completed?|closed)\b")
+JIRA_BLOCKED_RE = re.compile(r"(?i)\b(blocked|blocking|impediment|waiting)\b")
+JIRA_NEGATED_DONE_RE = re.compile(
+    r"(?i)\b(?:not|isn't|isnt|wasn't|wasnt)\s+"
+    r"(?:done|finished|completed?|closed|ready|shipped)\b"
+)
+JIRA_NEGATED_BLOCKED_RE = re.compile(
+    r"(?i)\b(?:not|isn't|isnt|wasn't|wasnt)\s+"
+    r"(?:blocked|blocking|an?\s+impediment|waiting)\b"
+)
+MAX_JIRA_KEYS = 3
 
 
 def same_sha(left: str, right: str) -> bool:
@@ -80,5 +92,69 @@ def has_edits(record: ActivityRecord) -> bool:
     return bool(record.files_changed or record.diffs or is_dirty(record))
 
 
-def github_tool_calls(record: ActivityRecord) -> Sequence[ToolCall]:
-    return tuple(call for call in record.tool_calls if call.name.startswith("github."))
+def extract_jira_keys(record: ActivityRecord) -> tuple:
+    """Ticket keys from redacted prompts only. Cap 3 unique keys."""
+
+    seen = []
+    for prompt in record.prompts:
+        for match in JIRA_KEY_RE.finditer(prompt or ""):
+            key = match.group(1)
+            if key not in seen:
+                seen.append(key)
+            if len(seen) >= MAX_JIRA_KEYS:
+                return tuple(seen)
+    return tuple(seen)
+
+
+def claimed_jira_done(record: ActivityRecord, key: str) -> bool:
+    """Whether session text claims this exact Jira key is done."""
+
+    return _claimed_jira_state(
+        record,
+        key,
+        claim_re=JIRA_DONE_RE,
+        negated_re=JIRA_NEGATED_DONE_RE,
+    )
+
+
+def claimed_jira_blocked(record: ActivityRecord, key: str) -> bool:
+    """Whether session text claims this exact Jira key is blocked."""
+
+    return _claimed_jira_state(
+        record,
+        key,
+        claim_re=JIRA_BLOCKED_RE,
+        negated_re=JIRA_NEGATED_BLOCKED_RE,
+    )
+
+
+def _claimed_jira_state(
+    record: ActivityRecord,
+    key: str,
+    *,
+    claim_re,
+    negated_re,
+) -> bool:
+    needle = (key or "").upper()
+    if not needle:
+        return False
+    for blob in (*record.prompts, record.end_state):
+        text = blob or ""
+        key_matches = list(JIRA_KEY_RE.finditer(text))
+        if not key_matches:
+            continue
+        for claim in claim_re.finditer(text):
+            context = text[max(0, claim.start() - 24) : claim.end() + 24]
+            if negated_re.search(context):
+                continue
+            preceding = [
+                item for item in key_matches if item.end() <= claim.start()
+            ]
+            nearest = (
+                max(preceding, key=lambda item: item.end())
+                if preceding
+                else min(key_matches, key=lambda item: item.start())
+            )
+            if nearest.group(1).upper() == needle:
+                return True
+    return False
