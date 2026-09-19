@@ -1,6 +1,7 @@
-> **Pending integration:** `leo-dev` combines the remaining Jira/Drive, conversation-context,
-> Member 2 and Member 4 branches. See [integration audit and demo status](docs/LEO_INTEGRATION.md).
-> The shared `develop` branch is unchanged until the integration PR is approved and merged.
+> **Integration status:** PR #4 merged the Jira/Drive, conversation-context, Member 2
+> and Member 4 integration into `develop`. The follow-up on `leo-dev` restores
+> approved clarification replies and fixes conversation ordering. See
+> [integration audit and demo status](docs/LEO_INTEGRATION.md) for verification and live-test limits.
 
 > **Integrated development branch:** see [the complete pipeline and branch comparison](docs/DEVELOP_INTEGRATION.md).
 > `develop` connects project ingestion, scoped RAG, GPT-4o mini, recipient style, and approved replies in the owner's original Slack DM. Configure background sources with `VIRTUAL_YOU_INGESTION_CONFIG`; raw collection is separate from each message request.

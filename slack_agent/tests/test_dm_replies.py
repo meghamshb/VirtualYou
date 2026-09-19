@@ -95,6 +95,7 @@ def test_reject_never_sends_to_colleague(tmp_path):
         await monitor.decide(reply_id, True)
         assert len(calls)==1
         assert monitor.get(reply_id)['state']=='rejected'
+        assert not monitor.context.memory('DHUMAN:DHUMAN').has_prior_delivery
     asyncio.run(run())
 
 
@@ -115,6 +116,101 @@ def test_uncertain_delivery_not_replayed(tmp_path):
         await monitor.decide(reply_id, True)
         assert monitor.get(reply_id)['state']=='delivery_unknown'
         assert len(calls)==2
+        assert not monitor.context.memory('DHUMAN:DHUMAN').has_prior_delivery
+    asyncio.run(run())
+
+
+def test_judgment_with_ambiguous_topic_still_escalates(tmp_path):
+    monitor, calls = make_monitor(tmp_path)
+    with monitor.c.backend.store.connection(write=True) as db:
+        monitor._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': '2000000001.0',
+            'text': 'The GitHub connector and the Jira integration.'})
+        monitor._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': '2000000002.0',
+            'text': 'Should we deploy it?'})
+        db.execute("UPDATE slack_dm_replies SET state='rejected' WHERE source_ts='2000000001.0'")
+    asyncio.run(monitor.prepare_one())
+    with monitor.c.backend.store.connection() as db:
+        row = db.execute("SELECT * FROM slack_dm_replies WHERE source_ts='2000000002.0'").fetchone()
+    assert row['state'] == 'escalated'
+    assert monitor.c.backend.assistant.get(row['id'])['reason'] == 'scope_decision'
+    assert not calls
+
+
+def test_delivered_update_becomes_baseline_for_next_drafts_after_restart(tmp_path):
+    from virtual_you.contracts.reporting import utcnow
+
+    monitor, calls = make_monitor(tmp_path)
+    prompts = []
+
+    async def generate(**kwargs):
+        prompts.append(json.loads(kwargs['user']))
+        return supported_reply(kwargs)
+
+    monitor.c.backend.persona.provider.generate = generate
+    def post(**kwargs):
+        calls.append(kwargs)
+        return {'ts': '2000000001.5'}
+    monitor.c.bot().chat_postMessage = post
+
+    async def queue(mon, ts):
+        with mon.c.backend.store.connection(write=True) as db:
+            mon._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': ts, 'text': 'What is the current status?'})
+        mon.next_prepare = 0
+        await mon.prepare_one()
+        with mon.c.backend.store.connection() as db:
+            return db.execute('SELECT id FROM slack_dm_replies WHERE source_ts=?', (ts,)).fetchone()[0]
+
+    def state(prompt):
+        return next(e['delivery_status'] for e in prompt['evidence'] if e['field'] == 'end_state')
+
+    async def run():
+        key = await queue(monitor, '2000000001.0')
+        assert state(prompts[-1]) == 'no_prior_delivery_baseline'
+        await monitor.decide(key, True)
+
+        restarted = DMReplies(monitor.c, 'UFRIEND')
+        key = await queue(restarted, '2000000002.0')
+        assert state(prompts[-1]) == 'previously_delivered'
+        assert any(t['role'] == 'owner' for t in prompts[-1]['conversation_history'])
+        await restarted.decide(key, False)
+
+        now = utcnow()
+        monitor.c.backend.retrieval.upsert({
+            'session_id': 'routing-evidence', 'source': 'claude', 'redacted': True,
+            'end_state': 'Validation completed; callback fix verified.',
+            'timestamp_range': {'started_at': now, 'ended_at': now},
+        })
+        await queue(restarted, '2000000003.0')
+        assert state(prompts[-1]) == 'changed_since_delivery'
+        # Only the first update was sent; both subsequent drafts needed approval.
+        assert len([c for c in calls if c['channel'] == 'DHUMAN']) == 1
+
+    asyncio.run(run())
+
+
+def test_delivery_context_write_failure_does_not_replay_a_sent_message(tmp_path):
+    monitor, calls = make_monitor(tmp_path)
+    record_turn = monitor.context.record_turn
+
+    def fail_after_insert(**kwargs):
+        record_turn(**kwargs)
+        raise RuntimeError('Simulated database failure')
+
+    async def run():
+        await monitor.poll()
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection() as db:
+            key = db.execute('SELECT id FROM slack_dm_replies').fetchone()[0]
+        monitor.context.record_turn = fail_after_insert
+        with pytest.raises(RuntimeError, match='Simulated database failure'):
+            await monitor.decide(key, True)
+        assert monitor.get(key)['state'] == 'sending'
+        assert not monitor.context.memory('DHUMAN:DHUMAN').has_prior_delivery
+        restarted = DMReplies(monitor.c, 'UFRIEND')
+        assert restarted.get(key)['state'] == 'delivery_unknown'
+        await restarted.decide(key, True)
+        assert len([c for c in calls if c['channel'] == 'DHUMAN']) == 1
+
     asyncio.run(run())
 
 
@@ -146,7 +242,10 @@ def test_events_deduplicate_polling_and_filter_scope(tmp_path):
         assert db.execute('select count(*) from slack_dm_replies').fetchone()[0]==1
 
 
-def test_follow_up_reply_uses_recent_connector_context(tmp_path):
+@pytest.mark.parametrize('follow_up', [
+    'Have you updated it or anything?', 'What changed in the connector?',
+])
+def test_follow_up_reply_uses_recent_connector_context(tmp_path, follow_up):
     monitor, _ = make_monitor(tmp_path)
     queries = []
 
@@ -164,11 +263,16 @@ def test_follow_up_reply_uses_recent_connector_context(tmp_path):
             })
             monitor._insert(db, 'DHUMAN', {
                 'user': 'UFRIEND', 'ts': '2000000002.0',
-                'text': 'Have you updated it or anything?',
+                'text': follow_up,
+            })
+            # A later question may already be queued when this one is prepared.
+            monitor._insert(db, 'DHUMAN', {
+                'user': 'UFRIEND', 'ts': '2000000003.0',
+                'text': 'Any progress on the Jira connector?',
             })
             db.execute("UPDATE slack_dm_replies SET state='rejected' WHERE source_ts='2000000001.0'")
         await monitor.prepare_one()
-        assert queries == ['Have you updated it or anything? GitHub connector']
+        assert queries == [follow_up + ' GitHub connector']
 
     asyncio.run(run())
 
@@ -334,7 +438,7 @@ def test_threaded_reply_retains_delivery_context_without_cross_thread_history(tm
     asyncio.run(run())
 
 
-def test_ambiguous_follow_up_preserves_owner_escalation(tmp_path):
+def test_ambiguous_follow_up_offers_clarification_only_after_owner_approval(tmp_path):
     monitor, calls = make_monitor(tmp_path)
     with monitor.c.backend.store.connection(write=True) as db:
         monitor._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': '2000000001.0',
@@ -342,9 +446,25 @@ def test_ambiguous_follow_up_preserves_owner_escalation(tmp_path):
         monitor._insert(db, 'DHUMAN', {'user': 'UFRIEND', 'ts': '2000000002.0',
             'text': 'Did you update it?'})
         db.execute("UPDATE slack_dm_replies SET state='rejected' WHERE source_ts='2000000001.0'")
-    asyncio.run(monitor.prepare_one())
-    with monitor.c.backend.store.connection() as db:
-        row = db.execute("SELECT id,state FROM slack_dm_replies WHERE source_ts='2000000002.0'").fetchone()
-    assert row['state'] == 'escalated'
-    assert monitor.c.backend.assistant.get(row['id'])['reason'] == 'ambiguous_reference'
-    assert not calls
+    async def forbidden(**kwargs):
+        pytest.fail('A clarification must not invent an answer through the model')
+
+    monitor.c.backend.persona.provider.generate = forbidden
+
+    async def run():
+        await monitor.prepare_one()
+        with monitor.c.backend.store.connection() as db:
+            row = db.execute("SELECT * FROM slack_dm_replies WHERE source_ts='2000000002.0'").fetchone()
+        assert row['state'] == 'pending'
+        assert 'GitHub connector' in row['reply'] and 'Jira integration' in row['reply']
+        assert row['reply'].startswith('Could you clarify')
+        assert monitor.c.backend.assistant.get(row['id'])['status'] == 'draft_ready'
+        assert len(calls) == 1 and calls[0]['channel'] == 'DBOTUOWNER'
+        await monitor.decide(row['id'], True)
+        assert len(calls) == 2 and calls[1]['channel'] == 'DHUMAN'
+        assert calls[1]['text'] == row['reply']
+        from virtualyou_workflow.conversation_context import conversation_id
+        memory = monitor.context.memory(conversation_id('DHUMAN'))
+        assert not memory.delivered_evidence_refs
+
+    asyncio.run(run())

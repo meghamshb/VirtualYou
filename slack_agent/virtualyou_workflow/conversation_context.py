@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 from virtual_you.ingest.redact import redact_text
 
-
 RETENTION_SECONDS = 3 * 24 * 60 * 60
 _TOPIC_RE = re.compile(
     r"\b((?:[A-Za-z0-9][A-Za-z0-9_.-]*\s+){0,3}"
@@ -152,10 +151,10 @@ class ConversationContext:
         if not safe_text:
             return
         references = _normalise_evidence_refs(evidence_refs or ())
-        topics = _topics(safe_text)
+        topics = [topic for topic in _topics(safe_text) if not _is_generic_topic(topic)]
         with (nullcontext(db) if db is not None else self.store.connection(write=True)) as db:
             self._purge(db, now)
-            db.execute(
+            inserted = db.execute(
                 """INSERT OR IGNORE INTO conversation_turns(
                 conversation_id,message_ts,participant_id,role,text,created_at,
                 expires_at,evidence_refs,delivered_at
@@ -171,7 +170,9 @@ class ConversationContext:
                     json.dumps(references),
                     delivered_at,
                 ),
-            )
+            ).rowcount
+            if not inserted:
+                return  # A replay must not refresh graph retention or change its topics.
             node_ids = []
             for label in topics:
                 node_id = _node_id(label)
@@ -214,22 +215,43 @@ class ConversationContext:
                     ),
                 )
 
-    def resolve(self, conversation: str, message: str, *, now: float | None = None) -> Resolution:
+    def resolve(
+        self, conversation: str, message: str, *, now: float | None = None,
+        before_message_ts: str | None = None,
+    ) -> Resolution:
         """Resolve recent references without asserting facts about work."""
 
         current = redact_text(message).strip()[:4000]
         timestamp = time.time() if now is None else now
         with self.store.connection(write=True) as db:
             self._purge(db, timestamp)
-            rows = db.execute(
-                """SELECT label,aliases,last_seen_at FROM context_nodes
-                WHERE conversation_id=? AND expires_at>? ORDER BY last_seen_at DESC""",
-                (conversation, timestamp),
-            ).fetchall()
-        nodes = [
-            (row["label"], tuple(json.loads(row["aliases"])), row["last_seen_at"])
-            for row in rows
-        ]
+            if before_message_ts is None:
+                rows = db.execute(
+                    """SELECT label,aliases,last_seen_at FROM context_nodes
+                    WHERE conversation_id=? AND expires_at>? ORDER BY last_seen_at DESC""",
+                    (conversation, timestamp),
+                ).fetchall()
+                nodes = [
+                    (row["label"], tuple(json.loads(row["aliases"])), row["last_seen_at"])
+                    for row in rows if not _is_generic_topic(row["label"])
+                ]
+            else:
+                # Polling can enqueue newer messages first. Reconstruct the graph
+                # at the question's Slack timestamp, excluding the question itself.
+                rows = db.execute(
+                    """SELECT text,created_at FROM conversation_turns
+                    WHERE conversation_id=? AND expires_at>?
+                      AND CAST(message_ts AS REAL)<CAST(? AS REAL)
+                    ORDER BY CAST(message_ts AS REAL) DESC""",
+                    (conversation, timestamp, before_message_ts),
+                ).fetchall()
+                nodes = []
+                seen = set()
+                for row in rows:
+                    for topic in _topics(row["text"]):
+                        if not _is_generic_topic(topic) and topic.lower() not in seen:
+                            seen.add(topic.lower())
+                            nodes.append((topic, tuple(_aliases(topic)), row["created_at"]))
         direct = _topics(current)
         generic_direct = [topic for topic in direct if _is_generic_topic(topic)]
         if generic_direct and len(generic_direct) == len(direct):
@@ -237,7 +259,7 @@ class ConversationContext:
             if len(candidates) == 1:
                 return Resolution(_query(current, candidates), tuple(candidates))
             if len(candidates) > 1:
-                return Resolution(current, ambiguous_topics=tuple(candidates[:2]))
+                return Resolution(current, ambiguous_topics=tuple(candidates))
         if direct:
             return Resolution(_query(current, direct), tuple(direct))
         if not _REFERENCE_RE.search(current):
@@ -247,7 +269,7 @@ class ConversationContext:
         if len(candidates) == 1:
             return Resolution(_query(current, candidates), tuple(candidates))
         if len(candidates) > 1:
-            return Resolution(current, ambiguous_topics=tuple(candidates[:2]))
+            return Resolution(current, ambiguous_topics=tuple(candidates))
         return Resolution(current)
 
     def memory(
@@ -255,6 +277,7 @@ class ConversationContext:
         conversation: str,
         *,
         exclude_message_ts: str | None = None,
+        before_message_ts: str | None = None,
         now: float | None = None,
         max_turns: int = 8,
     ) -> ConversationMemory:
@@ -273,18 +296,19 @@ class ConversationContext:
             if exclude_message_ts is not None:
                 where += " AND message_ts<>?"
                 params.append(exclude_message_ts)
+            if before_message_ts is not None:
+                where += " AND CAST(message_ts AS REAL)<CAST(? AS REAL)"
+                params.append(before_message_ts)
             rows = db.execute(
                 """SELECT role,text FROM conversation_turns WHERE """
                 + where
-                + " ORDER BY created_at DESC LIMIT ?",
+                + " ORDER BY CAST(message_ts AS REAL) DESC,created_at DESC LIMIT ?",
                 [*params, max_turns],
             ).fetchall()
             delivered = db.execute(
-                """SELECT evidence_refs FROM conversation_turns
-                WHERE conversation_id=? AND expires_at>? AND role='owner'
-                  AND delivered_at IS NOT NULL
-                ORDER BY delivered_at DESC""",
-                (conversation, timestamp),
+                "SELECT evidence_refs FROM conversation_turns WHERE " + where
+                + " AND role='owner' AND delivered_at IS NOT NULL ORDER BY delivered_at DESC",
+                params,
             ).fetchall()
         history = tuple(
             {"role": row["role"], "text": row["text"][:750]} for row in reversed(rows)
@@ -367,7 +391,7 @@ def _reference_candidates(nodes, message: str) -> list[str]:
         return list(dict.fromkeys(generic))
     # A bare pronoun only inherits context when the conversation has one active topic.
     labels = list(dict.fromkeys(label for label, _, _ in nodes))
-    return labels if len(labels) <= 2 else []
+    return labels
 
 
 def _query(message: str, topics: list[str]) -> str:

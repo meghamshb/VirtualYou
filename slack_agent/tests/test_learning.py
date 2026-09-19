@@ -38,6 +38,9 @@ def test_edit_send_is_exact_once_and_never_implicitly_changes_persona(tmp_path, 
         row = mon.get(key)
         assert row["state"] == "sent" and row["edit_revision"] == 1 and row["original_reply"]
         assert mon.c.backend.store.get_persona("UFRIEND") == before
+        memory = mon.context.memory("DHUMAN:DHUMAN")
+        assert memory.has_prior_delivery
+        assert memory.delivered_evidence_refs == ()  # Edits cannot inherit draft citations.
         blocks = json.dumps(learning_buttons(mon.c, row))
         assert ("Remember this preference" in blocks) == (kind == "style")
         if kind == "audience":

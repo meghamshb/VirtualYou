@@ -42,6 +42,23 @@ def validate_request_id(request_id):
         raise ServiceError("invalid_request_id", "Use a UUID request ID without credentials.", 422)
 
 
+def clarification_reply(topics):
+    """A deterministic question, not a factual reply exempted from grounding."""
+
+    if not isinstance(topics, (list, tuple)) or not all(isinstance(t, str) for t in topics):
+        raise ServiceError("invalid_clarification", "Clarification requires recent topics.", 422)
+    labels = list(dict.fromkeys(redact_text(topic).strip()[:120] for topic in topics))
+    if not 2 <= len(labels) <= 8 or any(not label for label in labels):
+        raise ServiceError("invalid_clarification", "Clarification requires 2–8 distinct topics.", 422)
+    return {
+        "kind": "clarification",
+        "clarification_topics": labels,
+        "text": "Could you clarify which topic you mean: " + " or ".join(labels) + "?",
+        "evidence": [],
+        "paragraphs": [],
+    }
+
+
 class AssistantService:
     def __init__(self, settings, store, retrieval, workflow):
         self.settings, self.store, self.retrieval, self.workflow = (
@@ -100,6 +117,16 @@ class AssistantService:
         return self.save(value)
 
     def evidence_problem(self, question, result):
+        if result.get("kind") == "clarification":
+            # Only the exact bounded question produced locally is allowed without
+            # citations. A changed answer or a judgment request still fails closed.
+            try:
+                expected = clarification_reply(result.get("clarification_topics"))
+            except ServiceError:
+                return "invalid_clarification"
+            return judgment_reason(question) or (
+                None if result == expected else "invalid_clarification"
+            )
         cited = {c["evidence_id"] for p in result.get("paragraphs", []) for c in p["citations"]}
         used = [e for e in result.get("evidence", []) if e["evidence_id"] in cited]
         if not used or any(p["text"] == UNKNOWN for p in result.get("paragraphs", [])):
@@ -128,6 +155,7 @@ class AssistantService:
         conversation_history=None,
         delivered_evidence_refs=None,
         has_prior_delivery=False,
+        clarification_topics=None,
     ):
         validate_request_id(request_id)
         question = redact_text(question)[:4000]
@@ -141,6 +169,7 @@ class AssistantService:
                 "projects": scope.project_ids,
                 "sources": scope.sources,
                 "context": context or {},
+                **({"clarification_topics": clarification_topics} if clarification_topics else {}),
             }
         )
         async with self.locks.hold(request_id):
@@ -184,17 +213,20 @@ class AssistantService:
             if reason:
                 return self.escalate(value, reason)
             try:
-                result = await self.workflow.engine.reply(
-                    question=question,
-                    scope=scope,
-                    style=style,
-                    **({"thread_context": thread_context} if thread_context else {}),
-                    **({
-                        "conversation_history": conversation_history,
-                        "delivered_evidence_refs": delivered_evidence_refs,
-                        "has_prior_delivery": has_prior_delivery,
-                    } if conversation_history is not None else {}),
-                )
+                if clarification_topics:
+                    result = clarification_reply(clarification_topics)
+                else:
+                    result = await self.workflow.engine.reply(
+                        question=question,
+                        scope=scope,
+                        style=style,
+                        **({"thread_context": thread_context} if thread_context else {}),
+                        **({
+                            "conversation_history": conversation_history,
+                            "delivered_evidence_refs": delivered_evidence_refs,
+                            "has_prior_delivery": has_prior_delivery,
+                        } if conversation_history is not None else {}),
+                    )
             except ServiceError as error:
                 return self.escalate(value, error.code)
             reason = self.evidence_problem(question, result)

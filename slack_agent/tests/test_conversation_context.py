@@ -1,4 +1,5 @@
 import hashlib
+import time
 
 from virtual_you.backend.store import Store
 from virtualyou_workflow.conversation_context import (
@@ -141,3 +142,74 @@ def test_memory_keeps_only_cited_evidence_from_successful_deliveries(tmp_path):
         ).fetchone()
     assert "This text" not in row["evidence_refs"]
     assert row["delivered_at"] == 100
+
+
+def test_out_of_order_messages_do_not_leak_future_context_or_deliveries(tmp_path):
+    context = ConversationContext(Store(tmp_path / "db.sqlite"))
+    conversation = conversation_id("D123")
+    # Arrival order differs from Slack order, as in a paginated history poll.
+    for ts, role, text in [
+        ("5.0", "owner", "The Jira connector is done."),
+        ("4.0", "colleague", "And the Slack connector?"),
+        ("3.0", "colleague", "What changed in the connector?"),
+        ("2.0", "colleague", "Any progress on the GitHub connector?"),
+        ("1.0", "colleague", "Hello"),
+    ]:
+        context.record_turn(
+            conversation=conversation, message_ts=ts, participant_id="U1",
+            role=role, text=text, created_at=100,
+            delivered_at=100 if role == "owner" else None,
+        )
+    resolved = context.resolve(
+        conversation, "What changed in the connector?", now=101, before_message_ts="3.0",
+    )
+    assert resolved.topics == ("GitHub connector",)
+    memory = context.memory(conversation, now=101, before_message_ts="3.0")
+    assert [t["text"] for t in memory.history] == ["Hello", "Any progress on the GitHub connector?"]
+    assert not memory.has_prior_delivery
+
+
+def test_redacted_bounded_context_survives_restart_and_isolates_threads(tmp_path):
+    store = Store(tmp_path / "db.sqlite")
+    context = ConversationContext(store)
+    for i in range(12):
+        context.record_turn(
+            conversation=conversation_id("D123", "1.0"), message_ts=str(i + 2),
+            participant_id="U1", role="colleague",
+            text="GitHub connector password=private123 " + "word " * 200,
+        )
+    restarted = ConversationContext(Store(tmp_path / "db.sqlite"))
+    memory = restarted.memory(conversation_id("D123", "1.0"))
+    assert len(memory.history) == 8
+    assert all(len(t["text"]) <= 750 and "private123" not in t["text"] for t in memory.history)
+    for other in (conversation_id("DOTHER", "1.0"), conversation_id("D123", "2.0"), conversation_id("D123")):
+        assert restarted.memory(other).history == ()
+        assert restarted.resolve(other, "What changed in it?").topics == ()
+
+
+def test_replay_does_not_extend_retention_and_all_graph_data_expires(tmp_path):
+    context = ConversationContext(Store(tmp_path / "db.sqlite"))
+    start = time.time()
+    turn = dict(conversation="D1:D1", message_ts="1.0", participant_id="U1", role="owner",
+                text="The GitHub connector and the Jira integration.", delivered_at=start)
+    context.record_turn(**turn, created_at=start)
+    context.record_turn(**turn, created_at=start + 200)
+    with context.store.connection() as db:
+        assert db.execute('SELECT count(*) FROM context_edges').fetchone()[0] == 1
+    context.purge_expired(now=start + 3 * 24 * 60 * 60)
+    with context.store.connection() as db:
+        for table in ('conversation_turns', 'context_nodes', 'context_edges'):
+            assert db.execute('SELECT count(*) FROM ' + table).fetchone()[0] == 0
+    assert not context.memory('D1:D1').has_prior_delivery
+
+
+def test_three_active_topics_require_clarification_and_generic_turn_is_not_a_topic(tmp_path):
+    context = ConversationContext(Store(tmp_path / "db.sqlite"))
+    for i, text in enumerate((
+        "The GitHub connector.", "The Jira connector.", "The Slack connector.",
+        "What changed in the connector?",
+    )):
+        context.record_turn(conversation="D1:D1", message_ts=str(i + 1), participant_id="U1",
+                            role="colleague", text=text)
+    result = context.resolve("D1:D1", "Did you update it?")
+    assert set(result.ambiguous_topics) == {'GitHub connector', 'Jira connector', 'Slack connector'}

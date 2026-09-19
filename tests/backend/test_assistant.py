@@ -6,7 +6,7 @@ from conftest import KEY, persona_payload, prepare
 from fastapi.testclient import TestClient
 
 from virtual_you.backend.app import create_app
-from virtual_you.backend.assistant import judgment_reason
+from virtual_you.backend.assistant import clarification_reply, judgment_reason
 from virtual_you.backend.providers import DemoProvider
 from virtual_you.contracts.reporting import RetrievalRequest
 
@@ -209,3 +209,35 @@ def test_current_commit_uses_git_only_when_permitted(client, record):
         assert {e['source'] for e in reply['evidence']} == expected
         ids = {e['evidence_id'] for e in reply['evidence']}
         assert all(c['evidence_id'] in ids for p in reply['paragraphs'] for c in p['citations'])
+
+
+def test_clarification_cannot_mask_unsupported_work_claims(client):
+    assistant = client.app.state.assistant
+    reply = clarification_reply(['GitHub connector', 'Jira connector'])
+    assert assistant.evidence_problem('Did you update it?', reply) is None
+    assert assistant.evidence_problem('Should we deploy it?', reply) == 'scope_decision'
+    assert assistant.evidence_problem('Did you update it?', {
+        **reply, 'text': 'Both connectors are complete and deployed.',
+    }) == 'invalid_clarification'
+    assert assistant.evidence_problem('Did you update it?', {
+        **reply, 'clarification_topics': [],
+    }) == 'invalid_clarification'
+
+
+def test_clarification_is_durable_and_conflicting_topics_cannot_reuse_approval(client):
+    from virtual_you.backend.errors import ServiceError
+
+    assistant = client.app.state.assistant
+    async def forbidden(**kwargs):
+        pytest.fail('Clarification is deterministic, without model calls')
+    assistant.workflow.engine.reply = forbidden
+    args = dict(question='Did you update it?', recipient_id='manager',
+                scope=RetrievalRequest(), style={},
+                clarification_topics=['GitHub connector', 'Jira connector'])
+    first = asyncio.run(assistant.prepare('clarification-1', **args))
+    assert first['status'] == 'draft_ready'
+    assert asyncio.run(assistant.prepare('clarification-1', **args)) == first
+    args['clarification_topics'] = ['GitHub connector', 'Slack connector']
+    with pytest.raises(ServiceError) as error:
+        asyncio.run(assistant.prepare('clarification-1', **args))
+    assert error.value.code == 'request_conflict'

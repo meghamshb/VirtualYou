@@ -1,13 +1,48 @@
 # Leo integration audit — 2026-09-20
 
-`leo-dev` combines the outstanding feature branches on top of `develop` at
-`0c56e4c`. The remote and local `develop` refs remain at that baseline. Review this
-branch through one integration PR; do not merge the older PRs into their old
-phase branches as an additional step.
+PR #4 merged the original `leo-dev` integration into `develop` at `33d5301`.
+`leo-dev` now starts from that merged commit. Conversation-context follow-up fixes
+are committed and reviewed on `leo-dev` only; this follow-up does not commit, push
+or merge to `develop`. Do not merge the older PRs into their old phase branches
+as an additional integration step.
+
+During the follow-up, remote `develop` advanced to `40915b0`, a teammate's revert
+of the desktop/customer-hosting merge. That separate change is not incorporated
+into this `leo-dev` checkout (which retains the local demo). The conversation
+follow-up does not reverse the teammate's revert; its PR diff contains only the
+conversation fixes, tests and status documentation. Test counts here refer to
+the `leo-dev` tree, including its retained hosted tests.
+
+## Conversation-context follow-up
+
+`conv_context` remains at `24a1df7`, already an ancestor of `leo-dev` through merge
+`7ec02f1`. The original branch's eight changed files were compared with the
+integrated versions. No additional source-branch commits needed merging.
+
+The audit found that the original clarification suggestion had been replaced by
+a generic escalation. It also found that the current question and newer queued
+messages could contaminate topic resolution. The follow-up fixes those behaviors
+while retaining the current assistant, group replies, formatting and owner checks.
+
+| Feature | Preserved behavior and verification |
+| --- | --- |
+| Pronoun and generic-topic references | Resolve “it” and “the connector” against earlier turns in the same conversation; current and later messages are excluded, including out-of-order polling |
+| Ambiguity | Offer a deterministic choice among 2–8 topics in a private approval card; no model call or colleague send before approval. Larger/invalid choices and judgment requests escalate |
+| Short-lived topic graph | Turns, nodes and edges expire after three days; replaying a retained turn does not refresh retention |
+| Privacy and isolation | Redaction precedes storage; model history is limited to eight turns of 750 characters. DMs and threads have separate context, including after restart |
+| Delivery memory | Retain only cited evidence identifiers and hashes after a successful send; unchanged and changed work get their respective delivery annotations in the next prompt |
+| Grounding and approval | History remains reference context, never work evidence. Exact clarification text is validated separately; factual answers keep scope, citation and freshness guards |
+| Failure and edits | Rejection/uncertain sends create no delivery baseline. Human edits do not inherit draft citations. Delivery state and context commit together; restart does not replay a send after a persistence failure |
+
+Verification: **348 root tests + 145 Slack workflow tests passed**, plus scoped
+Ruff and `git diff --check`. The new regressions reproduced the clarification and
+ordering failures before the fixes. Slack delivery was exercised with fake clients,
+not a real workspace. No external messages were sent. Desktop source is unchanged;
+the desktop and provider checks below belong to the earlier integration run.
 
 ## Branch inventory
 
-| Source | Status at audit | Integration |
+| Source | Status at original audit (before PR #4) | Integration |
 | --- | --- | --- |
 | `feat/app` (`6de7407`) | Already in develop | Preserved Electron UI, customer onboarding/readiness checks and local backend adapter |
 | `feature/jira-drive-mcp` (`0e58d77`) | Not merged; no PR | Merged named-ticket Jira observations, work-state summaries, heartbeat refresh and bounded Drive folder metadata |
@@ -36,7 +71,8 @@ separate and is not part of this application PR.
   do not inherit citations to unchanged draft text.
 - Feed conversation context through the current assistant escalation service;
   preserve group context, citation labels, source scoping, Slack formatting,
-  style learning and owner-token delivery. Ambiguous references escalate.
+  style learning and owner-token delivery. Ambiguous factual references produce
+  owner-approved clarification questions; judgment requests still escalate.
 - Use one shared persona service and report prompt assembler. Preserve formal
   fallback for sparse histories, empty profiles, history/undo, and learned sentence
   preferences while adding lossless portable `soul.md` exports and standalone tools.
@@ -51,7 +87,7 @@ separate and is not part of this application PR.
   check peer/Host/Origin, use the current locks and redact all configured service
   credentials. This mode stores no note, activity or draft and sends no messages.
 
-## Verification
+## Earlier integration verification (PR #4)
 
 - Backend/ingestion/hosted suite: **346 passed** (`python -m pytest tests`).
 - Slack workflow suite: **137 passed** (`PYTHONPATH=src:slack_agent python -m pytest slack_agent/tests`).

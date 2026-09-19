@@ -1,7 +1,26 @@
 # Current integration status — 2026-09-20
 
-The working integration branch is **`leo-dev`**, based on `develop` at `0c56e4c`.
-Shared `develop` has not been pushed or merged by this task. See
+The working integration branch is **`leo-dev`**. GitHub PR #4 was merged into
+`develop` at `33d5301` before this follow-up; `leo-dev` was fast-forwarded to that
+commit. All new fixes remain on `leo-dev`; this follow-up does not commit, push or
+merge to `develop`.
+
+A later fetch found `develop` at `40915b0`, reverting desktop/customer-hosting
+files. That separate revert is not applied to this local `leo-dev` demo checkout;
+the follow-up PR contains only conversation fixes, tests and documentation.
+
+`conv_context` at `24a1df7` is already included through merge `7ec02f1`. The feature
+audit restored owner-approved clarification replies, excluded current/future
+messages from follow-up context, kept replay from extending topic retention, and
+made successful-delivery state and context persistence atomic. Judgment questions
+still escalate, and factual answers still require scoped activity evidence.
+
+Current verification: **348 backend/ingestion/hosted tests and 145 Slack workflow
+tests passed**. Regression coverage includes ordering, ambiguity, approval,
+redaction, thread isolation, three-day expiry, restart, delivered/changed evidence
+and uncertain delivery. Scoped lint and whitespace checks passed. Slack calls in
+these tests use fake clients; no live Slack delivery was performed. Desktop code
+is unchanged and its earlier build checks were not repeated. See
 [LEO_INTEGRATION.md](LEO_INTEGRATION.md) for the branch audit, conflict decisions,
 current checks, local demo instructions and outstanding external setup.
 

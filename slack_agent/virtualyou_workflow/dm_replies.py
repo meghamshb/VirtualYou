@@ -173,14 +173,20 @@ class DMReplies:
         as_user = row.get('send_as') == 'user'
         delivery = ('Approve sends this exact reply as YOU in the original DM.' if as_user else
                     'Approve sends this exact reply from VirtualYou to this person’s bot DM.')
+        grounding = json.loads(row.get('grounding') or '{}')
+        grounding_note = (
+            'Clarification only; asks which topic was meant and makes no work claims.'
+            if grounding.get('kind') == 'clarification' else
+            'Grounded in selected work evidence; review the quotes below.'
+            if grounding.get('evidence') else 'No matching authorized work evidence.'
+        )
         blocks = [
             {'type': 'section', 'text': plain(f'Reply for {name} — approval required')},
             {'type': 'section', 'text': plain('Incoming: ' + row['prompt'][:2000])},
             formatted_section(row['reply'] or 'Preparing reply…'),
             {'type': 'context', 'elements': [plain('Style: ' + row.get('style_source', 'reviewed persona'))]},
-            {'type': 'context', 'elements': [plain(status or delivery + ' ' + ('Grounded in selected work evidence; review the quotes below.' if json.loads(row.get('grounding') or '{}').get('evidence') else 'No matching authorized work evidence.'))]},
+            {'type': 'context', 'elements': [plain(status or delivery + ' ' + grounding_note)]},
         ]
-        grounding = json.loads(row.get('grounding') or '{}')
         quotes = [citation['quote'] for paragraph in grounding.get('paragraphs', []) for citation in paragraph.get('citations', [])]
         if quotes:
             blocks.append({'type': 'section', 'text': plain('Source quotes (review for support):\n' + '\n'.join(quotes)[:2500])})
@@ -239,11 +245,12 @@ class DMReplies:
                 started = time.monotonic()
                 scope = self.c.scope(person)
                 resolved = self.context.resolve(
-                    conversation_id(row['channel'], row.get('thread_ts') or None), row['prompt']
+                    conversation_id(row['channel'], row.get('thread_ts') or None), row['prompt'],
+                    before_message_ts=row['source_ts'],
                 )
                 memory = self.context.memory(
                     conversation_id(row['channel'], row.get('thread_ts') or None),
-                    exclude_message_ts=row['source_ts'],
+                    before_message_ts=row['source_ts'],
                 )
                 # Keep the standard recent window for general progress; targeted
                 # questions may retrieve older work within the same allowed audience.
@@ -256,7 +263,7 @@ class DMReplies:
                     conversation_history=list(memory.history),
                     delivered_evidence_refs=list(memory.delivered_evidence_refs),
                     has_prior_delivery=memory.has_prior_delivery,
-                    blocked_reason='ambiguous_reference' if resolved.is_ambiguous else None,
+                    clarification_topics=list(resolved.ambiguous_topics),
                     context={'recipient': self.recipient, 'dm_reply_id': row['id'], 'channel': row['channel'], 'policy': self.c.policy_fingerprint(person)})
                 if outcome['status'] != 'draft_ready':
                     with self.c.backend.store.connection(write=True) as db:
@@ -348,16 +355,17 @@ class DMReplies:
                 raise
             with self.c.backend.store.connection(write=True) as db:
                 db.execute("UPDATE slack_dm_replies SET state='sent' WHERE id=?", (reply_id,))
+                self.context.record_turn(
+                    conversation=conversation_id(channel, row.get('thread_ts') or None),
+                    message_ts=str(sent.get('ts') or '{}:reply'.format(row['source_ts'])),
+                    participant_id=self.c.config.owner_id,
+                    role='owner',
+                    text=row['reply'],
+                    delivered_at=time.time(),
+                    evidence_refs=evidence_references(json.loads(row['grounding'])) if edited_text is None else [],
+                    db=db,
+                )
             row = self.get(reply_id)
-            self.context.record_turn(
-                conversation=conversation_id(channel, row.get('thread_ts') or None),
-                message_ts=str(sent.get('ts') or '{}:reply'.format(row['source_ts'])),
-                participant_id=self.c.config.owner_id,
-                role='owner',
-                text=row['reply'],
-                delivered_at=time.time(),
-                evidence_refs=evidence_references(json.loads(row['grounding'])) if edited_text is None else [],
-            )
             status = 'Sent as you in the original DM.'
         await asyncio.to_thread(slack_call, self.c.bot().chat_update, channel=row['card_channel'], ts=row['card_ts'],
             text=status, blocks=self.blocks(row, status))
