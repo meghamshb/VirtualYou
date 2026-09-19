@@ -14,6 +14,7 @@ from virtual_you.backend.persona import PersonaService
 from virtual_you.contracts.reporting import RetrievalRequest, utcnow
 from virtual_you.ingest.redact import redact_text
 
+from .formatting import slack_text
 from .history import slack_call
 
 GROUP_STYLES = {
@@ -690,12 +691,11 @@ class GroupConversations:
                 response = client.chat_postMessage(
                     channel=value["channel"],
                     thread_ts=value["thread"],
-                    text=html.escape(
-                        f"VirtualYou for {getattr(self, 'owner_name', value['owner'])} · {'automatic' if automatic else 'owner-approved'}\n"
+                    text=slack_text(
+                        f"VirtualYou for {getattr(self, 'owner_name', value['owner'])} · {'automatic' if automatic else 'owner-approved'}\n\n"
                         + value["result"]["text"],
-                        quote=False,
                     ),
-                    mrkdwn=False,
+                    mrkdwn=True,
                     parse="none",
                     link_names=False,
                     unfurl_links=False,

@@ -1,11 +1,11 @@
 """The same owner identity checks for DM replies and approved voice reports."""
 
 import asyncio
-import html
 from uuid import NAMESPACE_URL, uuid5
 
 from virtual_you.backend.errors import ServiceError
 
+from .formatting import slack_text
 from .history import slack_call
 
 
@@ -67,8 +67,8 @@ class OwnerDMSender:
         try:
             payload = {
                 "channel": destination["target"],
-                "text": html.escape(draft["text"], quote=False),
-                "mrkdwn": False,
+                "text": slack_text(draft["text"]),
+                "mrkdwn": True,
                 "parse": "none",
                 "link_names": False,
                 "unfurl_links": False,

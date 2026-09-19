@@ -4,6 +4,7 @@ import json
 
 from virtual_you.backend.errors import ServiceError
 
+from .formatting import formatted_section
 from .groups import GROUP_STYLES, SOURCES
 from .learning import button, select
 from .setup_views import choices, modal, multi_select, text_input
@@ -66,7 +67,7 @@ def group_blocks(groups):
         if request.get("review_reason"):
             blocks.append(section("Automatic review: " + request["review_reason"]))
         if request["state"] == "pending":
-            blocks.append(section(request["result"]["text"][:2500]))
+            blocks.append(formatted_section(request["result"]["text"][:2500]))
             quotes = [
                 c["quote"]
                 for p in request["result"].get("paragraphs", [])

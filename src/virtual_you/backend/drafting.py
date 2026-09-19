@@ -228,7 +228,8 @@ class DraftEngine:
             "Each factual paragraph needs citations selecting the evidence_id of sources that support it. "
             "Citations contain ONLY the short evidence_id labels (S1, S2, etc.) from the supplied evidence, never commit hashes or session IDs; the server attaches verbatim source excerpts. "
             "With no relevant facts, use exactly '" + UNKNOWN + "' and no citations. "
-            "Keep 1–3 short factual paragraphs, total under 2200 characters. Describe only recorded changes. Do not conclude with predicted benefits, recommendations, or promises (for example should streamline, will improve, ensures robustness). No praise, performance judgments, or filler such as progressing well. Do not dump raw logs. "
+            "For multi-part answers use short **bold labels** (e.g. Changes, Tests, Blockers) followed by brief bullet lines, with blank lines between sections. Use backticks for filenames and commit IDs. Only include sections supported by evidence; do not add empty headings or repeat facts. A simple answer needs no headings. Avoid tables, LaTeX, and dense prose. Respect recipient tone; at most one neutral informational emoji when appropriate, never imply success with an emoji unless evidenced. "
+            "Keep 1–3 short factual sections, total under 2200 characters. Describe only recorded changes. Do not conclude with predicted benefits, recommendations, or promises (for example should streamline, will improve, ensures robustness). No praise, performance judgments, or filler such as progressing well. Do not dump raw logs. "
             "If the evidence misses the requested topic, you may set search_query to concise alternate "
             "keywords for ONE additional local search; otherwise search_query is empty. "
             "Schema: " + json.dumps(schema)

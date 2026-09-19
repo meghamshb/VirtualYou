@@ -10,6 +10,7 @@ from decimal import Decimal
 from virtual_you.backend.errors import ServiceError
 from virtual_you.ingest.redact import redact_text
 
+from .formatting import formatted_section, slack_text
 from .history import RetryLater, slack_call
 from .views import plain
 
@@ -144,7 +145,7 @@ class DMReplies:
         blocks = [
             {'type': 'section', 'text': plain(f'Reply for {name} — approval required')},
             {'type': 'section', 'text': plain('Incoming: ' + row['prompt'][:2000])},
-            {'type': 'section', 'text': plain(row['reply'] or 'Preparing reply…')},
+            formatted_section(row['reply'] or 'Preparing reply…'),
             {'type': 'context', 'elements': [plain('Style: ' + row.get('style_source', 'reviewed persona'))]},
             {'type': 'context', 'elements': [plain(status or delivery + ' ' + ('Grounded in selected work evidence; review the quotes below.' if json.loads(row.get('grounding') or '{}').get('evidence') else 'No matching authorized work evidence.'))]},
         ]
@@ -288,7 +289,7 @@ class DMReplies:
                 client = user_client
                 channel = row['channel']
                 await asyncio.to_thread(slack_call, client.chat_postMessage, channel=channel,
-                    text=row['reply'], mrkdwn=False, parse='none', unfurl_links=False, unfurl_media=False)
+                    text=slack_text(row['reply']), mrkdwn=True, parse='none', link_names=False, unfurl_links=False, unfurl_media=False)
             except Exception:
                 with self.c.backend.store.connection(write=True) as db:
                     db.execute("UPDATE slack_dm_replies SET state='delivery_unknown' WHERE id=?", (reply_id,))
