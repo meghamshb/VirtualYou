@@ -158,6 +158,14 @@ class DMReplies:
         if not row:
             return
         row = dict(row)
+        person = self.c.state.recipient(self.recipient)
+        if person.get('reply_enabled'):
+            # Work questions use scoped evidence and the shared report approval gate.
+            # Event and polling paths use the same channel/timestamp identity.
+            if self.c.queue_question(self.recipient, row['prompt'], row['channel'] + ':' + row['source_ts']):
+                with self.c.backend.store.connection(write=True) as db:
+                    db.execute("UPDATE slack_dm_replies SET state='work_question' WHERE id=?", (row['id'],))
+            return
         if row['send_as'] != 'user':
             row['send_as'] = 'user'
             with self.c.backend.store.connection(write=True) as db:

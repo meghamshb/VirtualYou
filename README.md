@@ -23,6 +23,13 @@ Open `http://127.0.0.1:8000`; get the local review key with
 are the defaults. No Slack/Discord messages are sent until live delivery is
 configured and a specific draft is reviewed, approved, and explicitly delivered.
 
+## Member 4 voice and work questions
+
+[MEMBER4.md](MEMBER4.md) covers local Whisper or optional ElevenLabs speech input,
+transcript correction, normalized voice drafts, four routine question types and
+persistent escalations. Both the web review page and Slack reuse the existing
+approval workflow. Live Slack/ElevenLabs acceptance and hosting remain to be run.
+
 ## Pathway 1 Ingestion
 
 This repository currently implements Member 1's ingestion boundary:
@@ -227,8 +234,8 @@ Run the acceptance suite:
 
 Persona generation, LLM drafting, approval, and Slack/Discord delivery are
 implemented separately in `virtual_you.backend`; they consume this ingestion
-boundary. Speech-to-text, standing chatbot listeners, and MCP enrichment remain
-outside the ingestion/backend work described here.
+boundary. Member 4 adds speech-to-text and Slack question routing on top of it;
+MCP enrichment and a Discord inbound listener remain follow-up work.
 
 ## Slack-native headless workflow
 

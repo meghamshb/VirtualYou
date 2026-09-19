@@ -97,3 +97,15 @@ User `message.im` events are the primary input. The listener discovers accessibl
 macOS `scripts/macos_service.py install --mode oauth` starts the backend at login and restarts it after failure. The ngrok tunnel also needs a running supervisor, and the Mac must remain awake and online. These local services do not provide availability while the machine is asleep, logged out, or powered off; use an always-on server for that requirement.
 
 **Personal-DM delivery update:** Conversational replies now always use the owner's user token and original DM. Bot delivery is no longer an option for these replies, regardless of an old `VIRTUAL_YOU_DM_SEND_AS` value. Already-posted legacy bot approval cards are blocked from sending; reject them and use a fresh draft. Unnotified drafts are upgraded before their approval card is posted. The bot remains the private review interface. Missing user `chat:write` permission causes an error, never fallback delivery as the bot. Work-report delivery is a separate feature.
+
+## Member 4 voice and work questions
+
+See [MEMBER4.md](../MEMBER4.md) for the new voice and evidence-checking path.
+Install the `voice` or `voice-cloud` backend extra in this worker's environment,
+configure its provider, and reauthorize the manifest's added bot `files:read`.
+The owner can upload a memo in the bot DM and confirm the transcript in Home.
+Reply-enabled recipients' mentions/DM work questions now create pending shared
+work drafts or visible escalations. Event/shortcut/polling retries deduplicate.
+These work answers use the bot destination shown on the approval card; the
+personal-chat user-token route described above remains separate. Neither path
+grants automatic permission to send. Discord inbound events are not added here.

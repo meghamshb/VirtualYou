@@ -84,6 +84,10 @@ class DraftEngine:
             )
         if self.provider.name.startswith("demo:"):
             warnings.append("Offline demo uses extractive templates, not a language model.")
+        if any(item.source == "voice" for item in evidence):
+            warnings.append(
+                "Voice evidence is user-reported, not independently verified. Check the transcript's names, numbers and negations."
+            )
         return {
             "report": report.model_dump(),
             "text": text,

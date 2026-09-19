@@ -1,9 +1,7 @@
 """Owner-controlled source, audience, and style settings for the Slack experience."""
 
-import hashlib
-import json
-
 from virtual_you.backend.errors import ServiceError
+from virtual_you.backend.slack_policy import guard_slack_policy, policy_fingerprint
 from virtual_you.contracts.reporting import PersonaStyle
 
 from .history import slack_call
@@ -14,18 +12,7 @@ class Experience:
         return self.backend.store.metadata("slack_preferences") or {"sources": [], "paused": False}
 
     def policy_fingerprint(self, value):
-        return hashlib.sha256(
-            json.dumps(
-                {
-                    "projects": sorted(value.get("projects", [])),
-                    "sources": sorted(self.preferences()["sources"]),
-                    "purpose": value.get("purpose", ""),
-                    "style_version": value.get("reviewed_version"),
-                    "reply_enabled": value.get("reply_enabled", False),
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        return policy_fingerprint(value, self.preferences())
 
     def require_ready(self, value):
         if self.preferences().get("paused"):
@@ -41,28 +28,8 @@ class Experience:
             )
 
     def require_current_policy(self, draft_id):
-        link = self.state.draft_link(draft_id)
-        value = self.state.recipient(link["recipient"])
-        self.require_ready(value)
-        saved = self.backend.store.metadata("slack_draft_policy:" + draft_id)
-        if saved != self.policy_fingerprint(value):
-            raise ServiceError(
-                "audience_changed",
-                "Settings or style changed. Reject this draft and prepare a fresh one.",
-            )
-        # A session can be reassigned after drafting. Check the current project mapping too.
-        draft = self.backend.store.get_draft(draft_id)
-        session_ids = {e["session_id"] for e in draft.get("evidence", [])}
-        with self.backend.store.connection() as db:
-            for session_id in session_ids:
-                row = db.execute(
-                    "SELECT project_id FROM activity_projects WHERE session_id=?", (session_id,)
-                ).fetchone()
-                if not row or row[0] not in value.get("projects", []):
-                    raise ServiceError(
-                        "audience_changed",
-                        "Evidence was moved to another project. Reject this draft and create a fresh one.",
-                    )
+        self.state.draft_link(draft_id)
+        guard_slack_policy(self.backend.store, self.backend.store.get_draft(draft_id))
 
     def status_summary(self):
         heartbeat = self.backend.store.metadata("heartbeat") or {}
@@ -73,9 +40,13 @@ class Experience:
             f"Indexed activities: {self.backend.retrieval.stats()['count']}. "
             f"Enabled sources: {', '.join(preferences['sources']) or 'none'}. "
             f"Drafting: {'paused' if preferences.get('paused') else 'running'}."
-            + (" All personal DMs enabled; sender-specific styles; approval required."
-               if getattr(getattr(self, "dm_replies", None), "all_personal_dms", False)
-               else " Personal DM listener enabled; replies require approval." if getattr(self, "dm_replies", None) else "")
+            + (
+                " All personal DMs enabled; sender-specific styles; approval required."
+                if getattr(getattr(self, "dm_replies", None), "all_personal_dms", False)
+                else " Personal DM listener enabled; replies require approval."
+                if getattr(self, "dm_replies", None)
+                else ""
+            )
         )
 
     def apply_experience(self, job):

@@ -35,6 +35,7 @@ def register(app, coordinator=None):
         return coordinator.authorized(body)
 
     from .dm_replies import register_dm_actions
+
     register_dm_actions(app, coordinator, event_key)
 
     def publish(client, user):
@@ -232,6 +233,8 @@ def register(app, coordinator=None):
 
     @app.event("message")
     def owner_message(event, body, client):
+        if coordinator.receive_member4(event, body):
+            return
         if coordinator.dm_replies:
             coordinator.dm_replies.receive_event(event, body.get("team_id"))
         if getattr(coordinator.dm_replies, "all_personal_dms", False):
@@ -240,7 +243,9 @@ def register(app, coordinator=None):
         # bot onboarding response into those conversations or echo own replies.
         if not any(a.get("is_bot") for a in body.get("authorizations", [])):
             return
-        if any(event.get("channel") == p.get("human_channel") for p in coordinator.state.recipients()):
+        if any(
+            event.get("channel") == p.get("human_channel") for p in coordinator.state.recipients()
+        ):
             return
         if event.get("subtype") or event.get("bot_id") or event.get("channel_type") != "im":
             return
@@ -274,12 +279,14 @@ def register(app, coordinator=None):
             ],
         )
 
-    # Explicitly acknowledge unsupported mentions without publishing a response as the owner.
     @app.event("app_mention")
-    def mention(event):
-        return
+    def mention(event, body):
+        coordinator.receive_member4(event, body, mention=True)
 
     from .setup_listeners import register_setup
 
     register_setup(app, coordinator, event_key)
+    from .member4 import register_member4
+
+    register_member4(app, coordinator, event_key)
     return coordinator

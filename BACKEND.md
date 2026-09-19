@@ -1,4 +1,4 @@
-# Virtual You — Members 2–3 backend
+# Virtual You — Members 2–4 backend
 
 This branch builds on ingestion commit `ab3c90f` from
 `phase-1.1,-complete-injestion-pipeline`. It imports Member 1's existing `ActivityRecord`
@@ -255,14 +255,12 @@ Example draft request (not an automatic send):
 }
 ```
 
-Member 4 can reuse `DraftEngine.generate(DraftRequest)` inside the server, or
-request a pending draft through the API. `question` provides context; it does
-not implement Member 4's escalation classifier, live voice agent, or Slack
-event listener. Keep those responsibilities in Member 4's module. Voice
-transcription should first pass through Member 1's normalizer, then use this
-same text drafting path. No second generation implementation is necessary.
-“GPT-live” in the planning document is not wired as a separate text provider;
-actual realtime audio integration belongs to Member 4 and is not implemented.
+[Member 4](MEMBER4.md) now adds `/api/voice` upload/review/confirmation and
+`/api/assistant/questions` with persistent escalation. Both paths call the same
+`Workflow` and `DraftEngine`; voice passes through Member 1 normalization first.
+All work answers remain pending until owner approval. The shared gate rechecks
+question evidence and persisted Slack audience policy, including HTTP-only
+restarts. Realtime voice and spoken replies are not implemented.
 
 Do not expose the owner key to a manager-facing bot/client. Before allowing
 untrusted callers, add separate ingestion/draft-only credentials and owner

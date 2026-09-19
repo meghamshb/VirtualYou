@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from virtual_you.backend.errors import ServiceError
 from virtual_you.backend.retrieval import canonical_hash
+from virtual_you.backend.slack_policy import guard_slack_policy
 from virtual_you.contracts.reporting import DraftRequest, utcnow
 from virtual_you.ingest.redact import assert_safe_serialized, redact_text
 
@@ -17,6 +18,12 @@ def approved_hash(draft):
 class Workflow:
     def __init__(self, store, engine, gateway):
         self.store, self.engine, self.gateway = store, engine, gateway
+        self.guards = []
+
+    def check_guards(self, draft):
+        guard_slack_policy(self.store, draft)
+        for guard in self.guards:
+            guard(draft)
 
     @staticmethod
     def check(draft, revision, allowed):
@@ -53,7 +60,9 @@ class Workflow:
         }
         with self.store.connection(write=True) as db:
             if db.execute("SELECT 1 FROM drafts WHERE id=?", (draft["id"],)).fetchone():
-                raise ServiceError("draft_already_exists", "This draft request was already saved.", 409)
+                raise ServiceError(
+                    "draft_already_exists", "This draft request was already saved.", 409
+                )
             self.store.save_draft(db, draft, "created")
         return draft
 
@@ -113,6 +122,7 @@ class Workflow:
             )
             self.check(draft, request.expected_revision, allowed)
             if request.action == "approve":
+                self.check_guards(draft)
                 self.gateway.validate_destination(draft["destination"])
                 draft["status"] = "approved"
                 draft["approval"] = {
@@ -142,6 +152,7 @@ class Workflow:
                     "Approval does not match the current content and destination.",
                     409,
                 )
+            self.check_guards(draft)
             self.gateway.validate_destination(draft["destination"])
             draft["status"] = "delivering"
             self.store.save_draft(db, draft, "delivery_started")

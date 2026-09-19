@@ -73,7 +73,12 @@ def setup_modal(coordinator):
             choices(
                 "sources",
                 "Work sources allowed in drafts",
-                [("Claude Code", "claude"), ("Cursor", "cursor"), ("Voice", "voice")],
+                [
+                    ("Claude Code", "claude"),
+                    ("Cursor", "cursor"),
+                    ("Codex", "codex"),
+                    ("Voice", "voice"),
+                ],
                 prefs["sources"],
             ),
             choices(

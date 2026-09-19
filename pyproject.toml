@@ -12,6 +12,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+voice = [
+  "faster-whisper>=1.2,<2",
+]
+voice-cloud = [
+  "av>=14,<19",
+  "numpy>=1.26,<3",
+]
 backend = [
   "fastapi>=0.115,<1",
   "uvicorn>=0.30,<1",
