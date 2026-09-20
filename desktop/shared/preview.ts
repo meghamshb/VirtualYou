@@ -34,6 +34,7 @@ export function freshWorkspace(): Workspace {
     drafts: [],
     activity: [],
     activityHasMore: false,
+    sourceCounts: null,
     collection: null,
     provider: null,
     backendPort: null,

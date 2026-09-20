@@ -256,3 +256,39 @@ reports remain simulated. Channel replies use the original question's thread
 parent. No colleague message or channel reply was sent by this follow-up; a new
 colleague mention and approved thread delivery still need live acceptance.
 Combined backend/Slack regression tests passed **590** at this checkpoint.
+
+## Editor ingestion proof and channel draft recovery
+
+Both local backend configurations now collect project-scoped Codex sessions and
+watch the project's Claude Code directory. In an isolated run, 100 normalized
+Codex windows and 20 Git records were produced; ten other-workspace sessions were
+excluded before parsing. No configured credential values matched the normalized
+output. These are bounded activity records, not 100 unique coding sessions.
+
+After restart, native Electron Activity showed 101 Codex records, 29 Git records
+and zero Claude records; later background checks added newly recorded Codex work.
+Expanding an actual Codex row displayed this session's public prompts, tool activity
+and file-change sections through the authenticated detail API. Claude has not yet
+been used in this checkout; configured-empty is expected. The separate port-8000
+demo database retains older seeded records and must not be presented as proof of
+real Claude usage. A named Jira issue in captured context could not be verified;
+that enrichment warning remains visible while successful source ingestion is shown.
+
+A real colleague mention in `#all-test` reached the group workflow with the
+original message preserved as its thread parent. It initially failed reply
+schema validation. Retrying after bounded schema repair exposed an uncited intro
+paragraph; isolated reproduction also showed citation strings where citation
+objects were required. The trusted prompt now matches the actual schema and
+requires cited answer paragraphs. Schema, citation and style failures share a
+single repair budget; strict validation and owner approval remain intact.
+
+The held request was recovered after those changes and is now **pending** in
+native Slack Home, showing four concise change bullets and their supporting Git
+excerpts. No channel answer was approved or sent by this follow-up. The owner must
+approve the draft to complete the actual threaded-delivery acceptance check.
+
+Final verification: **609 combined Python tests**, **44 desktop tests plus two
+packaging checks**, scoped lint, desktop typecheck/build and diff checks pass.
+Native inspection also caught and fixed a status-badge CSS collision that inflated
+the empty Claude card. Ingestion evidence and a generated review card do not prove
+automatic semantic correctness or final external delivery.

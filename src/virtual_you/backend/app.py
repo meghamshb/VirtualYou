@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from virtual_you.backend.activity_feed import (
     WorkflowPause,
+    activity_detail,
     activity_feed,
     collection_summary,
     integration_summary,
@@ -282,6 +283,10 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
     @api.get("/activity")
     def recent_activity(limit: int = Query(default=50, ge=1, le=100)):
         return activity_feed(settings, app.state.store, app.state.retrieval, limit)
+
+    @api.get("/activity/{activity_id}")
+    def normalized_activity(activity_id: str):
+        return activity_detail(app.state.store, activity_id)
 
     @api.post("/workflow/pause")
     def pause_workflow(request: WorkflowPause):

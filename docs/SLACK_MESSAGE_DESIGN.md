@@ -52,7 +52,7 @@ The conversational drafting prompt now starts with the meaning of a change, rath
 
 The prompt distinguishes a latest recorded restoration from an earlier removal and avoids presenting both as current. Selected evidence is not proof of branch ancestry, a complete history, live operation or deployment. Rationale must be explicitly supported, and test results must come from recorded test evidence. No automatic claim of “everything works” is allowed based on a commit.
 
-Before the candidate is returned for review, default replies over 1,200 characters or unsolicited full SHA dumps trigger the existing single repair attempt. Detailed requests allow 2,400 characters. The repair keeps the same selected evidence and must preserve material qualifications; a second failure is surfaced for review rather than silently cutting the message. Full identifiers remain in citation evidence. No content is shortened after approval.
+Before the candidate is returned for review, bare full commit hashes are shortened to seven characters unless the user explicitly requests full identifiers. Exact source URLs and citation evidence are preserved. Default replies over 1,200 characters trigger the existing single repair attempt; detailed requests allow 2,400 characters. The repair keeps the same selected evidence and must preserve material qualifications; a second failure is surfaced for review rather than silently cutting the message. No content is changed after approval.
 
 An illustrative rewrite from a test fixture:
 

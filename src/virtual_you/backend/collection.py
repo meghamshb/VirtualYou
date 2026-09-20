@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from virtual_you.contracts.activity import SourceKind
 from virtual_you.ingest.codex import public_session_chunks
@@ -30,6 +30,13 @@ class SourceConfig(BaseModel):
     pattern: str = "*.jsonl"
     # Explicit repository permission for this project; no global repository inference.
     github_repo: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    match_workspace: bool = False
+
+    @model_validator(mode="after")
+    def workspace_filter_source(self):
+        if self.match_workspace and self.source != SourceKind.CODEX:
+            raise ValueError("Workspace metadata filtering is supported for Codex sources only")
+        return self
 
 
 class Collector:
@@ -49,6 +56,7 @@ class Collector:
                 "empty": 0,
                 "errors": [],
                 "error_count": 0,
+                "sources": [],
             }
         errors, changed, unchanged, empty = [], 0, 0, 0
         try:
@@ -65,9 +73,18 @@ class Collector:
                 "empty": 0,
                 "errors": [{"code": "invalid_ingestion_config"}],
                 "error_count": 1,
+                "sources": [],
             }
         project_repos = {}
+        source_summaries = {}
         for source in sources:
+            summary = source_summaries.setdefault(source.source.value, {
+                "source": source.source.value, "configured": True,
+                "scan_state": "empty", "changed": 0, "unchanged": 0,
+                "error_count": 0, "filtered": 0,
+            })
+        for source in sources:
+            before = (changed, unchanged, len(errors))
             try:
                 root = Path(source.path).expanduser().resolve(strict=True)
                 workspace = Path(source.workspace).expanduser().resolve(strict=True)
@@ -125,6 +142,9 @@ class Collector:
                         if path.is_symlink() or not path.is_file():
                             continue
                         if root.is_dir() and not path.resolve().is_relative_to(root):
+                            continue
+                        if source.match_workspace and not codex_workspace_matches(path, workspace):
+                            source_summaries[source.source.value]["filtered"] += 1
                             continue
                         stat = path.stat()
                         # Codex streams bounded public chunks and skips embedded images.
@@ -207,11 +227,21 @@ class Collector:
                         )
             except (OSError, ValueError, IngestionError):
                 errors.append({"source": source.source.value, "code": "source_unavailable"})
+            finally:
+                summary = source_summaries[source.source.value]
+                summary["changed"] += changed - before[0]
+                summary["unchanged"] += unchanged - before[1]
+                summary["error_count"] += len(errors) - before[2]
         for project, repos in project_repos.items():
             if len(repos) == 1:
                 self.github_projects[project] = next(iter(repos))
             else:
                 errors.append({"source": "github", "code": "github_scope_conflict"})
+        for summary in source_summaries.values():
+            summary["scan_state"] = (
+                "failed" if summary["error_count"] else
+                "healthy" if summary["changed"] or summary["unchanged"] else "empty"
+            )
         return {
             "enabled": True,
             "configured_sources": len(sources),
@@ -220,6 +250,7 @@ class Collector:
             "empty": empty,
             "errors": errors[:20],
             "error_count": len(errors),
+            "sources": list(source_summaries.values()),
         }
 
 
@@ -235,3 +266,19 @@ def github_remote_repo(remote: str) -> str | None:
         path = parsed.path.lstrip("/")
     path = path.removesuffix(".git").rstrip("/")
     return path if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", path) else None
+
+
+def codex_workspace_matches(path: Path, workspace: Path) -> bool:
+    """Read only bounded first-line session metadata before opening public session chunks."""
+    with path.open("rb") as stream:
+        first = stream.readline(1_000_001)
+    if len(first) > 1_000_000:
+        raise ValueError("Codex session metadata is too large")
+    metadata = json.loads(first)
+    if not isinstance(metadata, dict) or metadata.get("type") != "session_meta":
+        raise ValueError("Codex session metadata is missing")
+    payload = metadata.get("payload")
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+        raise ValueError("Codex session workspace is missing")
+    return Path(cwd).resolve() == workspace

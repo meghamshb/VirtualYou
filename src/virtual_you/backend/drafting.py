@@ -320,8 +320,13 @@ class DraftEngine:
             "Do not invent success, blockers, dates, promises, links or private reasoning. "
             "Never add a why/rationale unless it is explicitly stated; passing tests do not prove absence of bugs. "
             "Put evidence IDs only in citations, never in the reply text. "
-            "Each factual paragraph needs citations selecting the evidence_id of sources that support it. "
-            "Citations contain ONLY the short evidence_id labels (S1, S2, etc.) from the supplied evidence, never commit hashes or session IDs; the server attaches verbatim source excerpts. "
+            "Every paragraph must have at least one supporting citation, except the exact unknown sentence below. "
+            "Do not return an uncited introduction, standalone heading, greeting, or closing caveat as a separate paragraph. "
+            "Omit that filler, or put a brief heading inside the same cited paragraph as its supported answer. "
+            "Each citations entry MUST be an object with the key evidence_id, for example "
+            '{"evidence_id":"S1"}. Never return citations as strings such as ["S1"]. '
+            "The evidence_id value must be a supplied short source label (S1, S2, etc.), "
+            "never a commit hash or session ID. The server attaches verbatim source excerpts. "
             "With no relevant facts, use exactly '" + UNKNOWN + "' and no citations. "
             + REPLY_WRITING_GUIDANCE
             + "If the evidence misses the requested topic, you may set search_query to concise alternate "
@@ -362,9 +367,33 @@ class DraftEngine:
             try:
                 report = ConversationalReply.model_validate(raw)
             except ValidationError as error:
-                raise ServiceError(
-                    "invalid_reply", "The model returned an invalid grounded reply.", 502
-                ) from error
+                if repairs:
+                    raise ServiceError(
+                        "invalid_reply", "The model returned an invalid grounded reply.", 502
+                    ) from None
+                repairs += 1
+                # Only schema-owned paths and Pydantic error types enter retry
+                # feedback. Unknown property names and rejected input may contain
+                # private source text or instructions and must never be echoed.
+                fields = {"paragraphs", "text", "citations", "evidence_id", "search_query"}
+                issues = [
+                    {"path": [part if isinstance(part, int) or part in fields else "unexpected_field"
+                              for part in issue["loc"]],
+                     "type": issue["type"]}
+                    for issue in error.errors(include_url=False, include_context=False, include_input=False)[:8]
+                ]
+                feedback = (
+                    "Previous draft failed invalid_reply JSON schema validation. "
+                    "Return only the supplied JSON object schema: paragraphs is an array of objects, "
+                    "each with text and citations. Each citation is an object with evidence_id, "
+                    'not a string or a source quote: use "citations":[{"evidence_id":"S1"}], '
+                    'never "citations":["S1"]. Select only supplied evidence IDs. '
+                    "Omit uncited introductions/headings; each supported paragraph needs citations. "
+                    "Keep the same supported answer and uncertainty. Do not add other fields or "
+                    "request another search; set search_query to an empty string. "
+                    "Schema issues: " + json.dumps(issues)
+                )
+                continue
             if searches == 0 and repairs == 0 and report.search_query:
                 searches += 1
                 refined = request.model_copy(update={"query": redact_text(report.search_query)})
@@ -419,7 +448,10 @@ class DraftEngine:
                     + error.code
                     + ": " + error.message + ". Regenerate using only supported facts. "
                     "Select only evidence_id values from the supplied sources that support the facts. "
-                    "Do not invent references or links. Do not request another search."
+                    "Do not invent references or links. Do not request another search. "
+                    "Every non-UNKNOWN paragraph requires citations, including a paragraph containing "
+                    "a heading or caveat. Omit standalone introductory/closing filler rather than inventing support. "
+                    'Each citation must be an object like {"evidence_id":"S1"}, not a string.'
                 )
                 continue
             break

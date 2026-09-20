@@ -12,12 +12,17 @@ import {
   activityKind,
   collectionLabel,
   filterActivity,
+  sourceLabel,
   timestamp,
 } from "../../shared/activity";
-import type { Action, Workspace } from "../../shared/model";
+import type { Action, ActivityDetail, Workspace } from "../../shared/model";
 import { isLocalPort } from "../../shared/model";
 import { Button, EmptyState } from "../components/ui";
 import { Projects } from "./Setup";
+import {
+  ActivityContext,
+  SourceBreakdown,
+} from "../components/ActivityContext";
 export function ProjectView({
   state,
   act,
@@ -67,15 +72,20 @@ export function ActivityView({
   onCollect,
   busy,
   onReview,
+  loadActivity,
 }: {
   state: Workspace;
   onRefresh: () => void;
   onCollect: () => void;
   busy: boolean;
   onReview: (draftId: string) => void;
+  loadActivity: (activityId: string) => Promise<ActivityDetail>;
 }) {
   const [kind, setKind] = useState("all");
   const [project, setProject] = useState("all");
+  const [expandedActivity, setExpandedActivity] = useState<
+    Record<string, boolean>
+  >({});
   const collection = state.collection;
   const activeProject =
     kind === "draft_event" || !state.projects.some((p) => p.id === project)
@@ -149,13 +159,16 @@ export function ActivityView({
               <ul>
                 {collection.errors.map((error, i) => (
                   <li key={`${error.code}-${i}`}>
-                    {error.source}: {error.message}
+                    {sourceLabel(error.source)}: {error.message}
                   </li>
                 ))}
               </ul>
             </div>
           )}
         </>
+      )}
+      {state.sourceCounts && state.mode === "local" && (
+        <SourceBreakdown sources={state.sourceCounts} />
       )}
       <div className="activity-filters">
         <label>
@@ -201,19 +214,44 @@ export function ActivityView({
       {items.length ? (
         <div className="timeline">
           {items.map((item) => (
-            <details className="activity-event" key={item.id}>
+            <details
+              className="activity-event"
+              key={item.id}
+              onToggle={(event) => {
+                if (event.target === event.currentTarget) {
+                  const open = event.currentTarget.open;
+                  setExpandedActivity((current) => ({
+                    ...current,
+                    [item.id]: open,
+                  }));
+                }
+              }}
+            >
               <summary className="timeline-row">
                 <span className="timeline-icon">
                   <ActivityIcon size={18} />
                 </span>
                 <span className="event-heading">
-                  <strong>{item.title}</strong>
+                  <strong>
+                    {activityKind(item) === "activity"
+                      ? `${sourceLabel(item.source)} activity`
+                      : item.title}
+                  </strong>
                   <small>
-                    {item.source}
+                    {sourceLabel(item.source)}
                     {item.projectId ? ` · ${item.projectId}` : ""}
                   </small>
                 </span>
-                <time dateTime={item.at}>{timestamp(item.at)}</time>
+                <time
+                  dateTime={item.at}
+                  title={
+                    activityKind(item) === "activity"
+                      ? "Session ended"
+                      : "Decision recorded"
+                  }
+                >
+                  {timestamp(item.at)}
+                </time>
                 <ChevronRight size={16} />
               </summary>
               <div className="event-body">
@@ -225,6 +263,15 @@ export function ActivityView({
                     work, not independent verification.
                   </p>
                 )}
+                {activityKind(item) === "activity" &&
+                  state.mode === "local" &&
+                  expandedActivity[item.id] && (
+                    <ActivityContext
+                      key={`${item.id}:${state.lastRefresh}`}
+                      activityId={item.id}
+                      load={loadActivity}
+                    />
+                  )}
                 {item.draftId && (
                   <Button
                     variant="ghost"

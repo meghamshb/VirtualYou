@@ -1680,6 +1680,132 @@ main {
 .event-body .fine-print {
   margin-top: 8px;
 }
+.source-breakdown {
+  margin: 24px 0;
+}
+.source-breakdown > .fine-print {
+  margin: 8px 0 16px;
+}
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.source-card {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+}
+.context-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.context-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.source-state {
+  font-size: 11px;
+  color: var(--muted);
+}
+.source-state[data-state="healthy"] {
+  color: var(--green);
+}
+.source-state[data-state="failed"] {
+  color: #a64736;
+}
+.source-count {
+  display: block;
+  margin-top: 20px;
+  font-size: 24px;
+  font-weight: 550;
+}
+.source-count small {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.source-card dl,
+.context-metadata {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 0;
+  font-size: 12px;
+}
+.source-card dt,
+.context-metadata dt {
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.source-card dd,
+.context-metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.recorded-context {
+  white-space: normal;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+.context-metadata {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 20px;
+}
+.context-section {
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+.context-section > summary {
+  cursor: pointer;
+  font-weight: 550;
+}
+.context-section > summary > span {
+  margin-left: 8px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.context-section blockquote,
+.context-section pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-left: 2px solid #ccded3;
+  background: white;
+  font-size: 12px;
+  max-height: 340px;
+  overflow: auto;
+}
+.context-files {
+  list-style: none;
+  padding: 0;
+}
+.context-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+.context-files li span,
+.context-tool .context-heading > span,
+.context-tool > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.context-tool {
+  margin-top: 18px;
+}
+.context-tool h4 {
+  margin: 10px 0 -6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
 .indexed-badge {
   color: var(--green);
   font-size: 12px;
@@ -1688,6 +1814,9 @@ main {
   border-radius: 20px;
 }
 @media (max-width: 900px) {
+  .source-grid {
+    grid-template-columns: 1fr;
+  }
   .collection-summary {
     grid-template-columns: 1fr;
   }

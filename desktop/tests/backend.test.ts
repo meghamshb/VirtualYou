@@ -43,6 +43,24 @@ const feed = {
     },
   ],
   has_more: true,
+  source_counts: [
+    {
+      source: "git",
+      count: 23,
+      latest_at: "2026-09-20T00:00:00Z",
+      configured: true,
+      scan_state: "failed",
+      last_scan_at: "2026-09-20T01:00:00Z",
+    },
+    {
+      source: "claude",
+      count: 0,
+      latest_at: null,
+      configured: true,
+      scan_state: "empty",
+      last_scan_at: "2026-09-20T01:00:00Z",
+    },
+  ],
   collection,
 };
 describe("existing backend boundary", () => {
@@ -121,6 +139,7 @@ describe("existing backend boundary", () => {
       expect(state.activity[0].projectId).toBe("virtualyou");
       expect(state.activity[1].draftId).toBe("draft-1");
       expect(state.activityHasMore).toBe(true);
+      expect(state.sourceCounts).toEqual(feed.source_counts);
       expect(state.paused).toBe(true);
       expect(state.integrations.find((i) => i.id === "slack")?.state).toBe(
         "configured",

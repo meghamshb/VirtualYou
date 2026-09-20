@@ -197,6 +197,7 @@ export default function App() {
         return (
           <ActivityView
             state={state}
+            loadActivity={bridge.activityDetail}
             busy={busy}
             onRefresh={() => void run(() => bridge.snapshot())}
             onCollect={() => act({ type: "refresh" })}

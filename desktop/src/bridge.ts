@@ -23,6 +23,11 @@ function load(): Workspace {
 let state = load();
 const preview: Bridge = {
   snapshot: async () => structuredClone(state),
+  activityDetail: async () => {
+    throw new Error(
+      "Connect a local backend to inspect real recorded context.",
+    );
+  },
   act: async (action) => {
     state = transition(state, action);
     localStorage.setItem(key, JSON.stringify(state));

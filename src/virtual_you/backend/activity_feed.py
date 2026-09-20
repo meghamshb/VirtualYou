@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from pathlib import PurePosixPath, PureWindowsPath
 
 from pydantic import BaseModel, ConfigDict, StrictBool
 
@@ -84,7 +86,37 @@ def set_workflow_pause(store, app_state, paused):
 
 
 def _text(value, limit=160):
-    return redact_text(str(value or ""))[:limit]
+    return _context_text(value)[:limit]
+
+
+def _context_text(value):
+    """Hide private filesystem locations while retaining API routes and evidence URLs."""
+    text = redact_text(str(value or ""))
+    local_prefix = (
+        r"/(?:Users|home|private|tmp|var|opt|usr|etc|Library|Applications|System|Volumes|"
+        r"root|workspace|workspaces|mnt|srv|run|dev|proc|sys|media)(?=/|\b)"
+        r"|[A-Za-z]:[\\/]|\\\\|file:///"
+    )
+
+    def basename(path):
+        return "[local]/" + re.split(r"[/\\]", path.rstrip("/\\"))[-1]
+
+    def hide(part):
+        # First preserve quoted filenames containing spaces as a single path.
+        part = re.sub(
+            r"([\"'])((?:" + local_prefix + r")[^\"'\n]*)\1",
+            lambda match: match[1] + basename(match[2]) + match[1], part,
+        )
+        return re.sub(
+            r"(?<![\w:/\\])(?:" + local_prefix + r")([^\s<>\"'`|()\[\]{}]*)",
+            lambda match: basename(match[0]), part,
+        )
+
+    pieces, start = [], 0
+    for url in re.finditer(r"https?://[^\s<>\"'`|()]+", text):
+        pieces.extend((hide(text[start:url.start()]), url[0]))
+        start = url.end()
+    return "".join([*pieces, hide(text[start:])])
 
 
 def collection_summary(settings, store, retrieval):
@@ -241,4 +273,119 @@ def activity_feed(settings, store, retrieval, limit):
         "limit": limit,
         "has_more": len(rows) > limit,
         "collection": collection_summary(settings, store, retrieval),
+        "source_counts": source_counts(store),
     }
+
+
+def source_counts(store):
+    """Count indexed source records separately from configured collectors and model use."""
+    with store.connection() as db:
+        counts = {
+            row["source"]: row
+            for row in db.execute(
+                """SELECT json_extract(payload, '$.source') AS source,
+                          COUNT(*) AS count, MAX(ended_at) AS latest_at
+                   FROM activities GROUP BY json_extract(payload, '$.source')"""
+            ).fetchall()
+        }
+    heartbeat = store.metadata("heartbeat") or {}
+    configured = {
+        item["source"]: item
+        for item in (heartbeat.get("collection") or {}).get("sources", [])
+        if isinstance(item, dict) and item.get("source") in {source.value for source in SourceKind}
+    }
+    rows = []
+    for source in SourceKind:
+        count = counts.get(source.value)
+        collection = configured.get(source.value, {})
+        state = collection.get("scan_state", "not_started")
+        if state not in {"healthy", "empty", "failed", "not_started"}:
+            state = "not_started"
+        if collection and heartbeat.get("state") == "failed":
+            state = "failed"
+        elif state == "healthy" and not count:
+            state = "empty"
+        rows.append({
+            "source": source.value,
+            "count": count["count"] if count else 0,
+            "latest_at": count["latest_at"] if count else None,
+            "configured": collection.get("configured") is True,
+            "scan_state": state,
+            "last_scan_at": heartbeat.get("finished_at") if collection else None,
+        })
+    return rows
+
+
+class DetailProjection:
+    """Bound the owner-facing excerpt after redaction, including a total text budget."""
+
+    def __init__(self):
+        self.remaining = 24_000
+        self.truncated = False
+
+    def text(self, value, limit):
+        text = _context_text(value)
+        size = min(limit, self.remaining)
+        self.truncated |= len(text) > size
+        result = text[:size]
+        self.remaining -= len(result)
+        return result
+
+    def take(self, items, limit):
+        self.truncated |= len(items) > limit
+        return items[:limit]
+
+    def path(self, path):
+        # Absolute changed-file paths are not raw source provenance. Expose a basename only.
+        if PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute():
+            path = "[local]/" + re.split(r"[/\\]", path)[-1]
+        return self.text(path, 300)
+
+
+def activity_detail(store, activity_id):
+    # Route with the opaque feed row ID; session identifiers can contain private paths.
+    match = re.fullmatch(r"activity:([1-9][0-9]{0,17})", activity_id)
+    if not match:
+        raise ServiceError("activity_not_found", "This activity record is unavailable.", 404)
+    with store.connection() as db:
+        row = db.execute(
+            """SELECT a.payload, a.indexed_at, p.project_id
+               FROM activities a LEFT JOIN activity_projects p ON p.session_id=a.session_id
+               WHERE a.id=?""", (int(match[1]),),
+        ).fetchone()
+    if not row:
+        raise ServiceError("activity_not_found", "This activity record is unavailable.", 404)
+    record = ActivityRecord.model_validate(redact_value(json.loads(row["payload"])))
+    view = DetailProjection()
+    detail = {
+        "id": activity_id,
+        "session_id": view.text(record.session_id, 160),
+        "source": record.source,
+        "project_id": view.text(row["project_id"], 80) if row["project_id"] else None,
+        "started_at": record.timestamp_range.started_at.isoformat(),
+        "ended_at": record.timestamp_range.ended_at.isoformat(),
+        "ingested_at": row["indexed_at"],
+        "summary": view.text(record.end_state or record.start_state, 1200),
+        "start_state": view.text(record.start_state, 2000),
+        "end_state": view.text(record.end_state, 3000),
+        "prompts": [view.text(prompt, 1500) for prompt in view.take(record.prompts, 8)],
+        "reasoning_summary": view.text(record.reasoning_summary, 2000),
+        "files_changed": [
+            {"path": view.path(item.path), "operation": item.operation.value}
+            for item in view.take(record.files_changed, 40)
+        ],
+        "tool_calls": [
+            {
+                "name": view.text(call.name, 120),
+                "input_summary": view.text(call.input_summary, 400),
+                "result_summary": view.text(call.result_summary, 1200),
+                "status": call.status,
+                "timestamp": call.timestamp.isoformat() if call.timestamp else None,
+            }
+            for call in view.take(record.tool_calls, 20)
+        ],
+        "diffs": [view.text(diff, 2000) for diff in view.take(record.diffs, 5)],
+        "redacted": True,
+    }
+    detail["truncated"] = view.truncated
+    return detail

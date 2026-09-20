@@ -13,6 +13,7 @@ import { z } from "zod";
 import { actionSchema, type Workspace } from "../shared/model";
 import { freshWorkspace, transition, diagnosticText } from "../shared/preview";
 import { LocalBackend, localOrigin } from "./backend";
+import { activityIdSchema } from "../shared/activity";
 import { applyLocalAction, refreshLocalSnapshot } from "./local-session";
 import { CredentialVault, trustedFrame } from "./security";
 import { Customer } from "./customer";
@@ -159,6 +160,15 @@ async function main() {
     }
     await persist();
     return state;
+  });
+  ipcMain.handle("vy:activity-detail", async (event, raw) => {
+    authorize(event);
+    const activityId = activityIdSchema.parse(raw);
+    if (!backend)
+      throw new Error(
+        "Connect a local backend to inspect real recorded context.",
+      );
+    return backend.activityDetail(activityId);
   });
   ipcMain.handle("vy:connect-local", async (event, raw) => {
     authorize(event);

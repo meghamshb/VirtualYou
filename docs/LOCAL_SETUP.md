@@ -171,6 +171,53 @@ and `jira.*` tool calls. Keep that original source (for example **Git** or
 **GitHub** or **Jira** source kind does not select enriched Git/voice records.
 Project access restrictions continue to apply to the entire record.
 
+## Claude Code and Codex activity
+
+Add editor sources to the private JSON file selected by
+`VIRTUAL_YOU_INGESTION_CONFIG`, alongside any existing Git entry. Use your own
+absolute paths and the same project identifier as your Git source:
+
+```json
+[
+  {
+    "source": "codex",
+    "path": "/Users/you/.codex/sessions",
+    "workspace": "/absolute/path/to/checkout",
+    "project": "my-project",
+    "pattern": "**/*.jsonl",
+    "match_workspace": true
+  },
+  {
+    "source": "claude",
+    "path": "/Users/you/.claude/projects/your-encoded-project-directory",
+    "workspace": "/absolute/path/to/checkout",
+    "project": "my-project",
+    "pattern": "*.jsonl"
+  }
+]
+```
+
+For Codex, `match_workspace` reads the first session metadata line and accepts
+only sessions whose recorded working directory equals the configured workspace.
+It excludes other projects before extracting their context. A different worktree
+requires its own explicit entry. The option is supported only for Codex.
+For Claude Code, select the actual project directory created after running Claude
+from your checkout. An existing empty directory is valid and reports no activity;
+a missing directory reports a configuration problem.
+
+Restart the backend after changing its environment/configuration, then use
+Electron **Activity → Check activity now**. Work source cards show indexed
+**records**, which may be bounded windows from the same long session, not unique
+session counts. Expand a Claude/Codex row to inspect normalized prompts, file
+changes, tool outcomes and diff excerpts. The owner-authenticated detail endpoint
+returns bounded, redacted context rather than raw session files.
+
+This demonstrates ingestion. To demonstrate that a particular reply used an
+editor source, enable that source for the intended recipient/channel and inspect
+that reply's evidence. Source collection does not change recipient permissions.
+No private reasoning is collected. Keep raw logs and the local configuration out
+of Git; use `VIRTUAL_YOU_ENV_FILE` for the local secret file used by redaction.
+
 ## Troubleshooting
 
 | Symptom | Check |

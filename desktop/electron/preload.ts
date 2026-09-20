@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { Action, Bridge } from "../shared/model";
 const api: Bridge = {
   snapshot: () => ipcRenderer.invoke("vy:snapshot"),
+  activityDetail: (activityId) =>
+    ipcRenderer.invoke("vy:activity-detail", activityId),
   act: (action: Action) => ipcRenderer.invoke("vy:act", action),
   connectLocal: (port: number) => ipcRenderer.invoke("vy:connect-local", port),
   diagnostics: () => ipcRenderer.invoke("vy:diagnostics"),

@@ -19,7 +19,7 @@ messages from follow-up context, kept replay from extending topic retention, and
 made successful-delivery state and context persistence atomic. Judgment questions
 still escalate, and factual answers still require scoped activity evidence.
 
-Current verification: **381 backend/ingestion/hosted tests and 198 Slack workflow
+Current verification: **609 combined backend/ingestion/hosted and Slack workflow
 tests passed**. Regression coverage includes ordering, ambiguity, approval,
 redaction, thread isolation, three-day expiry, restart, delivered/changed evidence
 and uncertain delivery. Scoped lint and whitespace checks passed. Slack calls in
@@ -36,14 +36,13 @@ and audit feeds, manual collection, accurate integration configuration labels,
 Slack workflow pause and local-connection recovery. Slack review cards now use
 shared Block Kit templates; new personal-DM candidates disclose AI assistance
 before approval. A clean macOS setup is documented in [LOCAL_SETUP.md](LOCAL_SETUP.md).
-Desktop checks: **40 Vitest tests + 2 packaging checks**, lint and build passed.
+Desktop checks: **44 Vitest tests + 2 packaging checks**, lint and build passed.
 Native checks cover real activity refresh and compact report disclosure controls.
 GitHub and Jira are now configured locally: real GitHub PR evidence reaches the
 indexed Git records, and a separate SCRUM-1 read/enrichment probe passed. Jira
 requires named issues in work activity; no board import is implemented. Drive
-credentials, editor-log source configuration and hosted customer release remain
-separate work. Labelled self-DM delivery and its full evidence modal have
-now passed native Slack checks; the combined Slack suite has 195 passing tests.
+credentials and hosted customer release remain separate work. Labelled self-DM
+delivery and its full evidence modal have passed native Slack checks.
 Self-testing is opt-in and uses an explicit `vy-test:` prefix in the owner’s own DM.
 Electron now uses the supplied launch-video logo for runtime and packaged icons.
 
@@ -54,6 +53,15 @@ without a new commit, within project scope and bounded lookup limits; unavailabl
 facts become unknown. A fresh concise self-DM reply is pending owner approval.
 Human review remains necessary: an earlier model candidate inferred an unsupported
 reason and another failed schema validation.
+
+Editor ingestion is now enabled on Leo's local backends. A native Electron check
+showed **101 Codex records**, **29 Git records** and a configured, empty Claude
+source. Codex is filtered by the session's actual workspace metadata; records
+from unrelated workspaces are excluded. Activity source counts cover the complete
+index, and expanding an entry loads bounded, authenticated context. This verifies
+collection, not that any particular model answer used every captured item. Claude
+has no real project session yet. Named Jira keys in captured context can still
+fail lookup; those warnings remain visible independently of successful parsing.
 
 The notes below are historical Member 2/4 milestones; their branch names and
 acceptance counts are not the current integration result.

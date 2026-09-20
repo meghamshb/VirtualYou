@@ -2,6 +2,11 @@ import { z } from "zod";
 import { freshWorkspace } from "../shared/preview";
 import type { Workspace, Action, Draft } from "../shared/model";
 import { isLocalPort } from "../shared/model";
+import {
+  activityDetailSchema,
+  activityIdSchema,
+  sourceCountSchema,
+} from "../shared/activity";
 export function localOrigin(port: number): string {
   if (!isLocalPort(port))
     throw new Error("Choose a port between 1024 and 65535.");
@@ -47,6 +52,12 @@ export class LocalBackend {
       );
     }
     return response.json();
+  }
+  async activityDetail(activityId: string) {
+    const id = activityIdSchema.parse(activityId);
+    return activityDetailSchema.parse(
+      await this.request(`/api/activity/${encodeURIComponent(id)}`),
+    );
   }
   async snapshot(): Promise<Workspace> {
     const [statusData, draftData, profileData, activityData] =
@@ -119,6 +130,7 @@ export class LocalBackend {
             title: z.string(),
             summary: z.string(),
             source: z.string().optional(),
+            session_id: z.string().optional(),
             project_id: z.string().nullable().optional(),
             draft_id: z.string().optional(),
             files_changed_count: z.number().optional(),
@@ -126,6 +138,7 @@ export class LocalBackend {
           }),
         ),
         has_more: z.boolean(),
+        source_counts: z.array(sourceCountSchema).optional(),
         collection: z.object({
           state: z.enum([
             "healthy",
@@ -178,6 +191,7 @@ export class LocalBackend {
       backendPort: this.port,
       collection: feed.collection,
       activityHasMore: feed.has_more,
+      sourceCounts: feed.source_counts ?? null,
       paused: status.workflow.paused,
       workflowAvailable: status.workflow.available,
       activity: feed.items.map((item) => ({
@@ -191,6 +205,7 @@ export class LocalBackend {
         draftId: item.draft_id,
         filesChanged: item.files_changed_count,
         toolCalls: item.tool_calls_count,
+        sessionId: item.session_id,
       })),
       projects: status.projects.map((id) => ({
         id,

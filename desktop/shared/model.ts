@@ -45,6 +45,39 @@ export interface Activity {
   draftId?: string;
   filesChanged?: number;
   toolCalls?: number;
+  sessionId?: string;
+}
+export interface ActivityDetail {
+  session_id: string;
+  source: string;
+  project_id: string | null;
+  started_at: string;
+  ended_at: string;
+  ingested_at: string | null;
+  summary: string;
+  start_state: string;
+  end_state: string;
+  prompts: string[];
+  reasoning_summary: string;
+  files_changed: { path: string; operation: string }[];
+  tool_calls: {
+    name: string;
+    input_summary: string;
+    result_summary: string;
+    status: string;
+    timestamp: string | null;
+  }[];
+  diffs: string[];
+  redacted: true;
+  truncated: boolean;
+}
+export interface SourceCount {
+  source: string;
+  count: number;
+  latest_at: string | null;
+  configured: boolean;
+  scan_state: "healthy" | "empty" | "failed" | "not_started";
+  last_scan_at: string | null;
 }
 export interface Collection {
   state: "healthy" | "empty" | "degraded" | "failed" | "not_started";
@@ -68,6 +101,7 @@ export interface Workspace {
   drafts: Draft[];
   activity: Activity[];
   activityHasMore: boolean;
+  sourceCounts: SourceCount[] | null;
   collection: Collection | null;
   provider: string | null;
   backendPort: number | null;
@@ -111,6 +145,7 @@ export const actionSchema = z.discriminatedUnion("type", [
 export type Action = z.infer<typeof actionSchema>;
 export interface Bridge {
   snapshot(): Promise<Workspace>;
+  activityDetail(activityId: string): Promise<ActivityDetail>;
   act(action: Action): Promise<Workspace>;
   connectLocal(port: number): Promise<Workspace>;
   diagnostics(): Promise<string>;
