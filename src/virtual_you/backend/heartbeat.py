@@ -5,39 +5,35 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 
 import httpx
 
 from virtual_you.backend.collection import Collector
+from virtual_you.backend.enrichment import RemoteEvidence
 from virtual_you.backend.errors import ServiceError
 from virtual_you.contracts.activity import ActivityRecord
 from virtual_you.contracts.reporting import utcnow
 from virtual_you.ingest.errors import IngestionError
-from virtual_you.ingest.redact import redact_value
-from virtual_you.mcp.jira import (
-    JiraClient,
-    RestJiraClient,
-    enrich_jira,
-    jira_enabled,
-)
+from virtual_you.mcp.jira import JiraClient
 
 MAX_RECORD_BYTES = 1_000_000
 MAX_FEED_BYTES = 10_000_000
 
 
 class Heartbeat:
-    def __init__(self, settings, store, retrieval, client, jira_client=None):
+    def __init__(self, settings, store, retrieval, client, jira_client=None, github_client=None):
         self.settings, self.store, self.retrieval, self.client = settings, store, retrieval, client
         self.jira_client: JiraClient | None = jira_client
+        self.github_client = github_client
+        self.remote_evidence = RemoteEvidence()
         self.lock = asyncio.Lock()
         self.fingerprints = {}
         self.collector = Collector(settings)
 
-    async def refresh(self):
+    async def refresh(self, *, force_integrations=False):
         started = utcnow()
         try:
-            return await self._refresh()
+            return await self._refresh(force_integrations=force_integrations)
         except Exception:
             # Manual/startup refresh failures must not leave an older healthy result visible.
             # Preserve the last successful timestamp, but never expose exception text or paths.
@@ -58,16 +54,18 @@ class Heartbeat:
             self.store.set_metadata("heartbeat", status)
             return status
 
-    async def _refresh(self):
+    async def _refresh(self, *, force_integrations=False):
         async with self.lock:
             started = utcnow()
             changed, skipped, removed, errors = 0, 0, 0, []
             observed = set()
-            jira_client = self.jira_client
-            if jira_client is None and jira_enabled():
-                jira_client = RestJiraClient.from_env(os.environ)
             collection = await asyncio.to_thread(self.collector.collect)
             errors.extend(collection["errors"])
+            remote = self.remote_evidence.begin(
+                self.settings, self.collector.github_projects,
+                github_client=self.github_client, jira_client=self.jira_client,
+                force=force_integrations,
+            )
             try:
                 if not self.settings.activity_dir.is_dir():
                     raise OSError("Activity directory unavailable")
@@ -76,6 +74,7 @@ class Heartbeat:
             except OSError:
                 paths = []
                 errors.append({"source": "local", "code": "directory_unavailable"})
+            pending = []
             for path in paths:
                 origin = "file:" + str(path)
                 observed.add(origin)
@@ -88,17 +87,22 @@ class Heartbeat:
                         raise ValueError("Invalid activity file")
                     raw = await asyncio.to_thread(path.read_bytes)
                     digest = hashlib.sha256(raw).hexdigest()
-                    if self.fingerprints.get(origin) == digest and jira_client is None:
-                        skipped += 1
-                        continue
                     payload = json.loads(raw)
-                    if jira_client is not None:
-                        payload = await asyncio.to_thread(
-                            self._refresh_jira,
-                            payload,
-                            jira_client,
-                        )
-                    changed += int(await asyncio.to_thread(self.retrieval.upsert, payload, origin))
+                    # Spend the remote lookup budget on the newest work first.
+                    ended = ActivityRecord.model_validate(payload).timestamp_range.ended_at
+                    pending.append((ended.timestamp(), path, origin, digest, payload))
+                except (OSError, ValueError, TypeError, KeyError):
+                    self.fingerprints.pop(origin, None)
+                    removed += self.retrieval.remove_origin(origin)
+                    errors.append({"source": "local", "code": "invalid_activity_record"})
+            for _, path, origin, digest, payload in sorted(pending, key=lambda item: item[0], reverse=True):
+                try:
+                    project = path.parent.name if path.parent != self.settings.activity_dir else None
+                    # Even unchanged files must drop remote facts if a flag/scope changed.
+                    payload = await asyncio.to_thread(remote.apply, payload, project)
+                    updated = await asyncio.to_thread(self.retrieval.upsert, payload, origin)
+                    changed += int(updated)
+                    skipped += int(not updated)
                     if path.parent != self.settings.activity_dir:
                         self.retrieval.assign_project([payload["session_id"]], path.parent.name)
                     self.fingerprints[origin] = digest
@@ -136,20 +140,18 @@ class Heartbeat:
                         try:
                             if len(json.dumps(record)) > MAX_RECORD_BYTES:
                                 raise ValueError("Record too large")
-                            if jira_client is not None:
-                                record = await asyncio.to_thread(
-                                    self._refresh_jira,
-                                    record,
-                                    jira_client,
-                                )
+                            # Feed records have no approved GitHub repository scope.
+                            record = await asyncio.to_thread(remote.apply, record)
                             changed += int(await asyncio.to_thread(self.retrieval.upsert, record, "feed"))
                         except (ValueError, ServiceError, IngestionError):
                             errors.append({"source": "feed", "code": "invalid_activity_record"})
                 except (httpx.HTTPError, ValueError):
                     errors.append({"source": "feed", "code": "feed_refresh_failed"})
+            errors.extend(remote.errors)
             previous = self.store.metadata("heartbeat") or {}
             status = {
                 "collection": collection,
+                "enrichment": remote.summary(),
                 "enabled": self.settings.heartbeat_enabled,
                 "interval_seconds": self.settings.heartbeat_seconds,
                 "started_at": started,
@@ -167,22 +169,6 @@ class Heartbeat:
             }
             self.store.set_metadata("heartbeat", status)
             return status
-
-    @staticmethod
-    def _refresh_jira(payload, client):
-        if not isinstance(payload, dict) or payload.get("redacted") is not True:
-            raise ServiceError(
-                "unredacted_record", "Only explicitly redacted ActivityRecords are accepted.", 422
-            )
-        token = (os.environ.get("JIRA_API_TOKEN") or "").strip()
-        secrets = [token] if token else []
-        record = ActivityRecord.model_validate(redact_value(payload, extra_secrets=secrets))
-        return enrich_jira(
-            record,
-            client=client,
-            extra_secrets=secrets,
-            enabled=True,
-        ).model_dump(mode="json")
 
     async def run(self):
         while True:

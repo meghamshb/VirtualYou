@@ -93,10 +93,13 @@ def has_edits(record: ActivityRecord) -> bool:
 
 
 def extract_jira_keys(record: ActivityRecord) -> tuple:
-    """Ticket keys from redacted prompts only. Cap 3 unique keys."""
+    """Explicit ticket references in prompts or Git commit messages, never diffs. Cap 3."""
 
     seen = []
-    for prompt in record.prompts:
+    texts = list(record.prompts)
+    if record.source == "git":
+        texts.append(record.reasoning_summary)
+    for prompt in texts:
         for match in JIRA_KEY_RE.finditer(prompt or ""):
             key = match.group(1)
             if key not in seen:

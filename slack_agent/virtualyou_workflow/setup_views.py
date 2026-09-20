@@ -64,16 +64,15 @@ def setup_modal(coordinator):
         "Setup & status",
         [
             section(coordinator.status_summary()),
+            {"type": "divider"},
+            section(coordinator.integration_status_summary()),
             section(
-                "Enable the normalized work sources you want used in drafts. Your ingestion service must collect these sources separately. This switch controls retrieval, not OS file permissions."
-            ),
-            section(
-                "Selected DM samples are redacted locally before storage and model processing. Pattern-based redaction cannot detect every confidential detail. Review your style examples before use. With a cloud model, sanitized samples and selected work evidence leave this machine."
+                "These choices allow already-collected records in drafts. They do not connect an account or start collection. GitHub/Jira details attached to Git activity follow the Git commits selection."
             ),
             choices(
                 "sources",
                 "Work sources allowed in drafts",
-                [("Claude Code", "claude"), ("Cursor", "cursor"), ("Codex", "codex"), ("Git commits", "git"), ("Voice", "voice")],
+                [("Claude Code", "claude"), ("Cursor", "cursor"), ("Codex", "codex"), ("Git commits", "git"), ("Voice", "voice"), ("GitHub records", "github"), ("Jira records", "jira"), ("Drive records", "drive")],
                 prefs["sources"],
             ),
             choices(
@@ -82,6 +81,9 @@ def setup_modal(coordinator):
                 [("Pause preparation and sending", "yes")],
                 ["yes"] if prefs.get("paused") else [],
             ),
+            {"type": "context", "elements": [plain(
+                "DM samples and work evidence are redacted locally. Cloud models receive the sanitized content. Review it: pattern-based redaction cannot catch every confidential detail."
+            )]},
         ],
     )
 

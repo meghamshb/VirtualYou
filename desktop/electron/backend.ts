@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { freshWorkspace } from "../shared/preview";
 import type { Workspace, Action, Draft } from "../shared/model";
+import { isLocalPort } from "../shared/model";
 export function localOrigin(port: number): string {
-  if (!Number.isInteger(port) || port < 1024 || port > 65535)
+  if (!isLocalPort(port))
     throw new Error("Choose a port between 1024 and 65535.");
   return `http://127.0.0.1:${port}`;
 }

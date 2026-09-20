@@ -10,6 +10,15 @@ from virtual_you.backend.config import Settings
 KEY = "local-test-key-with-at-least-24-characters"
 
 
+@pytest.fixture(autouse=True)
+def isolated_connector_environment(monkeypatch):
+    # CLI tests must not load the operator's live .env into this pytest process.
+    # Each integration test opts in explicitly and injects fake clients/transports.
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
+    for name in ("VIRTUAL_YOU_MCP_GITHUB", "VIRTUAL_YOU_MCP_JIRA", "VIRTUAL_YOU_MCP_DRIVE"):
+        monkeypatch.setenv(name, "false")
+
+
 @pytest.fixture
 def settings(tmp_path):
     return Settings(data_dir=tmp_path / "data", api_key=KEY, heartbeat_enabled=False)

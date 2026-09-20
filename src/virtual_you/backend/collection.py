@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,14 +28,18 @@ class SourceConfig(BaseModel):
     workspace: str
     # Directory patterns are relative to the explicitly approved source directory.
     pattern: str = "*.jsonl"
+    # Explicit repository permission for this project; no global repository inference.
+    github_repo: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 class Collector:
     def __init__(self, settings):
         self.settings = settings
         self.fingerprints = {}
+        self.github_projects = {}
 
     def collect(self):
+        self.github_projects = {}
         if not self.settings.ingestion_config:
             return {
                 "enabled": False,
@@ -59,6 +66,7 @@ class Collector:
                 "errors": [{"code": "invalid_ingestion_config"}],
                 "error_count": 1,
             }
+        project_repos = {}
         for source in sources:
             try:
                 root = Path(source.path).expanduser().resolve(strict=True)
@@ -67,6 +75,15 @@ class Collector:
                     raise ValueError()
                 if Path(source.pattern).is_absolute() or ".." in Path(source.pattern).parts:
                     raise ValueError()
+                repo = source.github_repo
+                if not repo and os.getenv("VIRTUAL_YOU_GITHUB_REPO"):
+                    remote = _run_git(workspace, "remote", "get-url", "origin")
+                    found = github_remote_repo(remote.stdout) if not remote.returncode else None
+                    configured = os.environ["VIRTUAL_YOU_GITHUB_REPO"].strip()
+                    if found and found.casefold() == configured.casefold():
+                        repo = configured
+                if repo:
+                    project_repos.setdefault(source.project, set()).add(repo.casefold())
                 if source.source == SourceKind.GIT:
                     # Skip unchanged commits before expensive diff extraction/redaction.
                     head = _run_git(workspace, "rev-parse", "HEAD")
@@ -98,6 +115,10 @@ class Collector:
                     workspace_root=workspace,
                     latest_work_only=False,
                     apply_git_overlay=False,
+                    # Runtime remote refresh belongs to the project-scoped heartbeat.
+                    # Never mix the legacy global observation store into these records.
+                    apply_github_enrichment=False,
+                    apply_jira_enrichment=False,
                 )
                 for path in paths:
                     try:
@@ -186,6 +207,11 @@ class Collector:
                         )
             except (OSError, ValueError, IngestionError):
                 errors.append({"source": source.source.value, "code": "source_unavailable"})
+        for project, repos in project_repos.items():
+            if len(repos) == 1:
+                self.github_projects[project] = next(iter(repos))
+            else:
+                errors.append({"source": "github", "code": "github_scope_conflict"})
         return {
             "enabled": True,
             "configured_sources": len(sources),
@@ -195,3 +221,17 @@ class Collector:
             "errors": errors[:20],
             "error_count": len(errors),
         }
+
+
+def github_remote_repo(remote: str) -> str | None:
+    """Parse an origin locally; credentials and non-GitHub hosts never become evidence."""
+    remote = remote.strip()
+    if remote.startswith("git@github.com:"):
+        path = remote[len("git@github.com:"):]
+    else:
+        parsed = urlparse(remote)
+        if parsed.scheme not in {"https", "ssh"} or parsed.hostname != "github.com":
+            return None
+        path = parsed.path.lstrip("/")
+    path = path.removesuffix(".git").rstrip("/")
+    return path if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", path) else None

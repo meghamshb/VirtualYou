@@ -9,17 +9,12 @@ import {
   ChevronDown,
 } from "lucide-react";
 import type { Workspace, Draft } from "../../shared/model";
-import { approvalCopy, reviewUnavailable } from "../../shared/review";
+import {
+  approvalCopy,
+  draftOutcome,
+  reviewUnavailable,
+} from "../../shared/review";
 import { Button, EmptyState } from "../components/ui";
-
-function draftStatus(draft: Draft, state: Workspace) {
-  if (draft.status === "pending") return "Ready for review";
-  if (draft.status === "simulated")
-    return state.mode === "preview"
-      ? "Approved in preview"
-      : "Delivery simulated";
-  return draft.status;
-}
 
 function Evidence({ draft }: { draft: Draft }) {
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -79,18 +74,22 @@ export function Approvals({
   onDecision,
   onRefresh,
   busy,
+  initialDraftId,
 }: {
   state: Workspace;
   onSample: () => void;
   onDecision: (d: Draft, approve: boolean) => void;
   onRefresh: () => void;
   busy: boolean;
+  initialDraftId?: string | null;
 }) {
   // Independent rows allow comparing several drafts without forcing one open.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showResolved, setShowResolved] = useState(true);
   const initial =
-    state.drafts.find((d) => d.status === "pending") || state.drafts[0];
+    state.drafts.find((d) => d.id === initialDraftId) ||
+    state.drafts.find((d) => d.status === "pending") ||
+    state.drafts[0];
   const drafts = state.drafts.filter(
     (d) => showResolved || d.status === "pending",
   );
@@ -108,6 +107,15 @@ export function Approvals({
           </Button>
         )}
       </div>
+      {state.paused && (
+        <div className="notice" role="status">
+          {state.mode === "preview"
+            ? "The preview is paused."
+            : "The Slack workflow is paused."}{" "}
+          Resume it in Settings before approving.
+          {!unavailable && " You can still reject a draft."}
+        </div>
+      )}
       {state.drafts.length > 0 && (
         <div className="approval-toolbar">
           <div className="disclosure-tools">
@@ -180,7 +188,7 @@ export function Approvals({
                   <span
                     className={`draft-status ${draft.status === "pending" ? "pending" : ""}`}
                   >
-                    {draftStatus(draft, state)}
+                    {draftOutcome(draft, state).label}
                   </span>
                   <ChevronDown size={19} className={open ? "rotated" : ""} />
                 </button>
@@ -228,11 +236,7 @@ export function Approvals({
                         </>
                       ) : (
                         <span className="resolved">
-                          {draft.status === "simulated"
-                            ? state.mode === "preview"
-                              ? "Approved in preview. No message was sent."
-                              : "Delivery simulated by your backend. No message was sent."
-                            : `This draft is ${draft.status}.`}
+                          {draftOutcome(draft, state).description}
                         </span>
                       )}
                     </div>

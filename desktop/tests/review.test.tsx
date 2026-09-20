@@ -26,10 +26,11 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
   };
 }
 
-function render(state: Workspace) {
+function render(state: Workspace, initialDraftId?: string) {
   return renderToStaticMarkup(
     <Approvals
       state={state}
+      initialDraftId={initialDraftId}
       onSample={() => {}}
       onDecision={() => {}}
       onRefresh={() => {}}
@@ -39,6 +40,50 @@ function render(state: Workspace) {
 }
 
 describe("report approval presentation", () => {
+  it("opens the report selected from an activity event instead of the first pending report", () => {
+    const state = workspace();
+    state.drafts.push({
+      ...state.drafts[0],
+      id: "report-2",
+      text: "Selected report content.",
+    });
+    const html = render(state, "report-2");
+    expect(html).toContain("Selected report content.");
+    expect(html).not.toContain("The integration test is ready for review.");
+    expect(html).toContain('id="draft-report-2"');
+  });
+
+  it("explains an uncertain delivery and offers no automatic retry control", () => {
+    const state = workspace();
+    state.drafts[0].status = "delivery_unknown";
+    const html = render(state);
+    expect(html).toContain("Delivery unconfirmed");
+    expect(html).toContain(
+      "Check the destination before trying again to avoid a duplicate message.",
+    );
+    expect(html).not.toContain("Approve &amp; send");
+  });
+  it("opens a resolved draft linked from activity, with resolved history visible", () => {
+    const state = workspace();
+    state.drafts.push({
+      ...state.drafts[0],
+      id: "rejected-report",
+      status: "rejected",
+      text: "Rejected report selected from history.",
+    });
+    const html = render(state, "rejected-report");
+    expect(html).toContain("Rejected report selected from history.");
+    expect(html).not.toContain("The integration test is ready for review.");
+    expect(html).toContain('type="checkbox" checked=""');
+    expect(html).toContain(
+      "This draft was rejected. Nothing was sent by this decision.",
+    );
+  });
+  it("does not promise rejection is available while a paused backend is offline", () => {
+    const html = render(workspace({ paused: true, health: "offline" }));
+    expect(html).toContain("The Slack workflow is paused.");
+    expect(html).not.toContain("You can still reject a draft.");
+  });
   it("names the live destination in the confirmation", () => {
     const copy = approvalCopy(workspace(), "slack: D123");
     expect(copy.label).toBe("Approve & send");

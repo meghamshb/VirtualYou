@@ -50,6 +50,7 @@ class IngestionService:
         github_client: Optional[GitHubClient] = None,
         apply_github_enrichment: bool = True,
         jira_client: Optional[JiraClient] = None,
+        apply_jira_enrichment: bool = True,
         drive_client: Optional[DriveClient] = None,
     ) -> None:
         configured_root = data_directory or os.environ.get("VIRTUAL_YOU_DATA_DIR")
@@ -72,6 +73,7 @@ class IngestionService:
         self._apply_github_enrichment = apply_github_enrichment
         self._github_client = github_client
         self._jira_client = jira_client
+        self._apply_jira_enrichment = apply_jira_enrichment
         self._drive_client = drive_client
         self._observation_store = ObservationStore(self._root)
         stored = load_token(self._root)
@@ -287,7 +289,7 @@ class IngestionService:
                 store=self._observation_store,
                 extra_secrets=self._env_secrets,
             )
-        if jira_enabled():
+        if self._apply_jira_enrichment and jira_enabled():
             jira = self._jira_client
             if jira is None:
                 jira = RestJiraClient.from_env(os.environ)

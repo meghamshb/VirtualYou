@@ -1,5 +1,7 @@
 """Read-only GitHub access: Protocol, fake, and optional REST client."""
 
+import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Protocol, Sequence, Union
@@ -100,12 +102,14 @@ class RestGitHubClient:
         timeout: float = DEFAULT_TIMEOUT,
         http_get=None,
     ) -> None:
-        if "/" not in repo:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
             raise ValueError("VIRTUAL_YOU_GITHUB_REPO must be owner/name")
         self.repo = repo.strip("/")
         self.token = token
         self.timeout = timeout
         self._http_get = http_get
+        self._complete = True
+        self._deadline = None
 
     @classmethod
     def from_env(
@@ -123,13 +127,18 @@ class RestGitHubClient:
             token = load_token(stored_root)
         if not repo or not token:
             return None
-        return cls(repo, token)
+        try:
+            return cls(repo, token)
+        except ValueError:
+            return None
 
     def snapshot_for_sha(self, sha: str) -> Optional[GitHubSnapshot]:
         if not sha:
             return None
+        self._complete = True
+        self._deadline = time.monotonic() + 10
         commit = self._get("/repos/{}/commits/{}".format(self.repo, quote(sha)))
-        if commit is None:
+        if not isinstance(commit, dict):
             return None
         full_sha = str(commit.get("sha") or sha)
         commit_url = str((commit.get("html_url") or ""))
@@ -143,6 +152,9 @@ class RestGitHubClient:
         for pull in pulls:
             reviews.extend(self._reviews(pull.number, full_sha))
             issues.extend(self._issues_for_pull(pull))
+        if not self._complete:
+            # An inaccessible checks/reviews endpoint is not evidence of no blockers.
+            return None
         return GitHubSnapshot(
             sha=full_sha,
             commit_url=commit_url,
@@ -156,7 +168,10 @@ class RestGitHubClient:
     def _pulls_for_sha(self, sha: str) -> List[PullRequest]:
         payload = self._get("/repos/{}/commits/{}/pulls".format(self.repo, quote(sha)))
         if not isinstance(payload, list):
+            self._complete = False
             return []
+        if len(payload) > 3:
+            self._complete = False
         result: List[PullRequest] = []
         for item in payload[:3]:
             if not isinstance(item, dict):
@@ -181,7 +196,10 @@ class RestGitHubClient:
         )
         runs = (payload or {}).get("check_runs") if isinstance(payload, dict) else None
         if not isinstance(runs, list):
+            self._complete = False
             return []
+        if len(runs) > 20 or int(payload.get("total_count", len(runs))) > len(runs):
+            self._complete = False
         result: List[CheckRun] = []
         for item in runs[:20]:
             if not isinstance(item, dict):
@@ -205,7 +223,10 @@ class RestGitHubClient:
             "/repos/{}/pulls/{}/reviews".format(self.repo, number)
         )
         if not isinstance(payload, list):
+            self._complete = False
             return []
+        if len(payload) >= 30:
+            self._complete = False
         result: List[Review] = []
         for item in payload[-10:]:
             if not isinstance(item, dict):
@@ -226,6 +247,7 @@ class RestGitHubClient:
             return []
         payload = self._get("/repos/{}/issues/{}".format(self.repo, pull.number))
         if not isinstance(payload, dict):
+            self._complete = False
             return []
         labels = payload.get("labels") or []
         titled = str(payload.get("title") or pull.title)
@@ -239,6 +261,9 @@ class RestGitHubClient:
         ] if labels or titled else []
 
     def _get(self, path: str, accept: str = "application/vnd.github+json"):
+        remaining = self._deadline - time.monotonic() if self._deadline else self.timeout
+        if remaining <= 0:
+            return None
         getter = self._http_get
         if getter is None:
             getter = _httpx_get
@@ -249,7 +274,7 @@ class RestGitHubClient:
                 "Authorization": "Bearer {}".format(self.token),
                 "X-GitHub-Api-Version": "2022-11-28",
             },
-            timeout=self.timeout,
+            timeout=min(self.timeout, remaining),
         )
 
 
@@ -262,5 +287,5 @@ def _httpx_get(url: str, headers: dict, timeout: float):
             return None
         response.raise_for_status()
         return response.json()
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError):
         return None

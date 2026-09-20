@@ -45,3 +45,21 @@ Local fake-client verification: the delivery-layout follow-up passed 159 Slack t
 ## Slack references
 
 Use native Block Kit instead of emulating a Discord embed with an image. [Block Kit](https://docs.slack.dev/block-kit/) supports message layouts and documents screen-reader fallback behavior. [Header blocks](https://docs.slack.dev/reference/block-kit/blocks/header-block/) provide a concise title; [section blocks](https://docs.slack.dev/reference/block-kit/blocks/section-block/) provide the body and paired fields. The [message API](https://docs.slack.dev/reference/methods/chat.postMessage/) documents posting and message identity. The current implementation uses established header, section, context, divider and action blocks.
+
+## Reply content: explain the work
+
+The conversational drafting prompt now starts with the meaning of a change, rather than a commit log or a list of implementation filenames. For a broad update it asks for a short answer, usually 50–100 words, with two to four outcome-led bullets when several changes matter. A focused question can get one or two direct sentences. Technical names, files and short commit references are included only when relevant to the question; exact SHA requests remain supported.
+
+The prompt distinguishes a latest recorded restoration from an earlier removal and avoids presenting both as current. Selected evidence is not proof of branch ancestry, a complete history, live operation or deployment. Rationale must be explicitly supported, and test results must come from recorded test evidence. No automatic claim of “everything works” is allowed based on a commit.
+
+Before the candidate is returned for review, default replies over 1,200 characters or unsolicited full SHA dumps trigger the existing single repair attempt. Detailed requests allow 2,400 characters. The repair keeps the same selected evidence and must preserve material qualifications; a second failure is surfaced for review rather than silently cutting the message. Full identifiers remain in citation evidence. No content is shortened after approval.
+
+An illustrative rewrite from a test fixture:
+
+> Restored the desktop app and connected its approvals to the backend.
+
+This replaces a hash-led changelog sentence only when the source explicitly records that change. It is not a claim that the restored app passed a live test. Automated checks verify bounded rewrites, evidence retention, requested technical detail and no draft creation/delivery during generation. Naturalness and factual interpretation still require the next real self-DM review.
+
+A bounded live content check on 2026-09-20 used the existing OpenAI configuration and a temporary database snapshot of the real `virtualyou` Git activity. No Slack message was sent and the live database was not modified. The first response was concise (66 words, 502 characters, four valid source references), but failed manual semantic review: it invented a reason for a revert and surfaced that older bookkeeping as a current update. The production prompt was tightened to prohibit inferred purposes from commit titles and to prioritize concrete recent product changes. The second and final allowed model call failed the reply JSON schema (`invalid_reply`); no candidate from that call was accepted. This is **not** a successful final live acceptance test. A fresh self-DM review is still required, and exact citation checks alone do not establish semantic correctness.
+
+A subsequent actual self-DM test using the final prompt produced a concise latest-commit reply with three source excerpts and no full SHA in the outgoing body. The native review card was inspected and left pending for the owner. This verifies the live path to review, not automatic semantic correctness or a new delivery. The current combined Slack suite has 198 passing tests.

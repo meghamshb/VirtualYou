@@ -286,7 +286,7 @@ def test_remote_feed_uses_authenticated_get_and_reports_failure(settings, record
         assert calls[0].method == "GET"
         assert calls[0].headers["Authorization"] == "Bearer feed-test-token"
         status = client.post("/api/refresh").json()
-        assert status["state"] == "degraded" and status["last_success_at"]
+        assert status["state"] == "degraded" and status["last_success_at"], status["errors"]
         assert client.get("/api/status").json()["activity"]["count"] == 1
 
 

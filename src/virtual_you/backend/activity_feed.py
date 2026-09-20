@@ -11,6 +11,7 @@ from virtual_you.backend.errors import ServiceError
 from virtual_you.contracts.activity import ActivityRecord, SourceKind
 from virtual_you.ingest.redact import redact_text, redact_value
 from virtual_you.mcp.drive import RestDriveClient, drive_enabled
+from virtual_you.mcp.enrich import github_enabled
 from virtual_you.mcp.jira import RestJiraClient, jira_enabled
 from virtual_you.mcp.oauth import load_token
 
@@ -24,6 +25,12 @@ ERROR_MESSAGES = {
     "feed_refresh_failed": "The activity feed could not be refreshed. Check its configuration and availability.",
     "collection_failed": "Source collection failed. Check the local source setup and try refreshing again.",
     "refresh_failed": "Activity refresh failed. Try refreshing again and check the local source setup.",
+    "github_scope_conflict": "A project has conflicting GitHub repositories. Check its source configuration.",
+    "github_scope_unavailable": "Link a source project to its GitHub repository before refreshing GitHub evidence.",
+    "github_not_configured": "GitHub refresh is enabled but repository credentials are unavailable.",
+    "github_lookup_failed": "GitHub evidence could not be verified. Check repository access, API limits, and connectivity.",
+    "jira_not_configured": "Jira refresh is enabled but its local credentials are incomplete.",
+    "jira_lookup_failed": "A named Jira issue could not be verified. Check the issue key, access, and connectivity.",
 }
 ACTION_TITLES = {
     "created": "Draft created",
@@ -85,7 +92,7 @@ def collection_summary(settings, store, retrieval):
     collected = heartbeat.get("collection") or {}
     count = retrieval.stats()["count"]
     errors = []
-    allowed_sources = {item.value for item in SourceKind} | {"local", "feed", "collector"}
+    allowed_sources = {item.value for item in SourceKind} | {"local", "feed", "collector", "github", "jira"}
     for error in heartbeat.get("errors", [])[:20]:
         code = error.get("code")
         code = code if code in ERROR_MESSAGES else "refresh_failed"
@@ -161,7 +168,7 @@ def integration_summary(settings, app_state):
         ),
         "github": entry(
             bool(os.getenv("VIRTUAL_YOU_GITHUB_REPO") and github_token),
-            enabled=bool(os.getenv("VIRTUAL_YOU_GITHUB_REPO")),
+            enabled=github_enabled(),
         ),
         "jira": entry(RestJiraClient.from_env(os.environ) is not None, enabled=jira_enabled()),
         "drive": entry(RestDriveClient.from_env(os.environ) is not None, enabled=drive_enabled()),

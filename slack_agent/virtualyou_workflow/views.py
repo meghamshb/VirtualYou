@@ -242,7 +242,7 @@ def home_view(recipients, drafts, *, connected, live, install_url=None, error=No
                 "elements": [
                     {
                         "type": "button",
-                        "text": plain("Connect my Slack account"),
+                        "text": plain("Reconnect Slack" if connected else "Connect my Slack account"),
                         "url": install_url,
                         "action_id": "vy_connect",
                     }
@@ -304,14 +304,23 @@ def home_view(recipients, drafts, *, connected, live, install_url=None, error=No
             ]
         blocks.append({"type": "actions", "elements": actions})
     if error:
+        readable = {
+            "invalid_state": "The draft changed before a previous action completed. Refresh and use its current controls.",
+            "revision_conflict": "A newer draft is available. Refresh before reviewing it.",
+            "audience_changed": "Recipient access changed. Prepare a fresh draft for the current audience.",
+            "slack_rate_limited": "Slack asked us to wait. The queued action will retry after the rate limit clears.",
+        }.get(error, "A previous action could not finish. Check the relevant person's status before trying that action again.")
         blocks.append(
-            section(
-                "Last workflow issue: "
-                + error
-                + ". Check the person/status above, then retry the relevant action."
-            )
+            section("Previous action needs attention\n" + readable)
         )
     for draft, name in drafts[:3]:
         blocks.append({"type": "divider"})
-        blocks.extend(draft_blocks(draft, name, live))
+        if draft["status"] in {"rejected", "simulated", "delivered"}:
+            state = {"rejected": "Rejected · nothing sent", "simulated": "Simulated · nothing sent", "delivered": "Delivered"}[draft["status"]]
+            blocks.extend([
+                section(f"Work update to {name}\n{state} · revision {draft['revision']}"),
+                {"type": "actions", "elements": [button("View update", "vy_view_report", json.dumps({"id": draft["id"], "revision": draft["revision"]}))]},
+            ])
+        else:
+            blocks.extend(draft_blocks(draft, name, live))
     return {"type": "home", "blocks": blocks[:100]}

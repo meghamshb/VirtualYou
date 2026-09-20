@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from virtual_you.contracts.activity import ActivityRecord, ToolCall
 from virtual_you.ingest.redact import assert_safe_serialized, redact_value
-from virtual_you.mcp.extract import extract_sha, has_edits, is_dirty
+from virtual_you.mcp.extract import extract_sha, has_edits, is_dirty, same_sha
 from virtual_you.mcp.followup import answer_targets
 from virtual_you.mcp.github import GitHubClient, GitHubSnapshot
 from virtual_you.mcp.observations import ObservationStore
@@ -50,6 +50,8 @@ def enrich(
             snapshot = client.snapshot_for_sha(sha)
         except Exception:
             snapshot = None
+    if snapshot is not None and not same_sha(snapshot.sha, sha):
+        snapshot = None
     if snapshot is not None:
         observations.extend(_snapshot_observations(snapshot, record.session_id, timestamp))
         if store is not None:
@@ -73,13 +75,15 @@ def enrich(
                 input_summary="work_state",
                 result_summary=sentence,
                 status="succeeded",
+                timestamp=timestamp,
             )
         )
     for followup in answer_targets(
         record=record,
         observations=observations,
         snapshot=snapshot,
-        client=None if snapshot is not None else client,
+        # A failed snapshot must not cause three more network requests or claim recovery.
+        client=None,
     ):
         ask_id = "github.ask.{}:{}".format(followup.kind, sha or record.session_id)
         if ask_id in existing:
@@ -91,6 +95,7 @@ def enrich(
                 input_summary=followup.kind,
                 result_summary=followup.text[:1500],
                 status="succeeded" if not followup.escalated else "unknown",
+                timestamp=timestamp,
             )
         )
         existing.add(ask_id)
@@ -266,4 +271,5 @@ def _observation_tool_call(observation: Observation) -> Optional[ToolCall]:
         input_summary=observation.source,
         result_summary=summary[:1500],
         status="succeeded" if observation.status == "verified" else "unknown",
+        timestamp=observation.timestamp or None,
     )

@@ -63,9 +63,9 @@ coverage.
   Unconfigured developer builds now open the local/preview workspace directly;
   saved local connections reopen automatically. New users must connect their own
   running backend through the native folder picker. See [LOCAL_SETUP.md](LOCAL_SETUP.md).
-- Jira and Drive credentials are absent locally; their live authentication,
-  fetching and end-to-end drafting have not been verified. Group conversation
-  delivery and conversation follow-ups were not exercised live in this session.
+- GitHub and Jira are configured locally; see the connector follow-up below for
+  live scope. Drive remains unconfigured. Group conversation delivery and
+  conversation follow-ups were not exercised live in this session.
 - Local Slack callbacks depend on the running backend and temporary HTTPS
   tunnel. Restarting the tunnel can change its address, requiring updated Slack
   callback configuration.
@@ -203,3 +203,38 @@ the self-test database still contained exactly one sent reply, with no extra
 queued or pending reply. Read-only Slack history confirmed one delivered message
 with matching approved wording (Slack normalizes fallback whitespace) and matching
 Block Kit content (excluding Slack-added block IDs/default emoji flags).
+
+
+## GitHub/Jira, concise replies and UI follow-up
+
+- GitHub uses the operator's existing local authorization, scoped to this project.
+  The restarted Slack backend indexed real `github.*` tool calls, including open
+  PR #5. The first refresh enriched eight of 27 records within the time budget;
+  older records were explicitly deferred/unknown. Empty checks were not called
+  passing CI. Later refreshes can reuse cached results and fetch additional work.
+- Jira authenticated successfully. `ENG-184` is the project display name; the
+  project key is `SCRUM`. A read-only `SCRUM-1` probe returned “Task 1”, To Do, and
+  became `jira.issue` and `jira.work_state` evidence. That deliberately isolated
+  test record was never saved into the real activity index. The real Git activity
+  currently contains no explicit Jira issue references, so zero runtime Jira
+  lookups is expected. No issue was edited and no board was imported.
+- Native Slack setup displays all eight supported sources and enabled GitHub/Jira
+  configuration. Existing Git/voice preferences were preserved. Completed reports
+  are compact on Home; **View update** opens the complete read-only report.
+- Native Electron checks passed: invalid port blocks the folder picker; Activity
+  opens the exact rejected draft; all evidence sources expand/collapse; decision
+  history explains its cross-project scope; configured Jira/GitHub retain Details.
+  UI labels intentionally describe configuration, not a continuous live test.
+  **Check activity now** completed against the integrated backend in about 22
+  seconds, reporting 18 changed and 9 unchanged indexed records.
+- A live self-DM question about the latest commit produced a short, hash-free
+  response with three source excerpts. Its real Slack card was visually inspected
+  and left **pending** for the owner to review. Nothing from this new candidate
+  was delivered. Earlier isolated model checks found one inferred rationale and
+  one schema failure; the prompt was tightened and the invalid response blocked.
+  These checks do not establish perfect semantic grounding.
+- Combined verification: **381 root Python tests**, **198 Slack tests**, **40
+  desktop tests plus 2 packaging checks**, lint, typecheck/build and whitespace
+  checks pass. Backend tests now isolate optional connector flags and prevent CLI
+  tests from loading the operator's live `.env`. Native-console inspection and
+  screen-reader playback were not performed.

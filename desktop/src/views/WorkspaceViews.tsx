@@ -8,8 +8,14 @@ import {
   Monitor,
   Link2,
 } from "lucide-react";
-import { collectionLabel, timestamp } from "../../shared/activity";
+import {
+  activityKind,
+  collectionLabel,
+  filterActivity,
+  timestamp,
+} from "../../shared/activity";
 import type { Action, Workspace } from "../../shared/model";
+import { isLocalPort } from "../../shared/model";
 import { Button, EmptyState } from "../components/ui";
 import { Projects } from "./Setup";
 export function ProjectView({
@@ -66,16 +72,16 @@ export function ActivityView({
   onRefresh: () => void;
   onCollect: () => void;
   busy: boolean;
-  onReview: () => void;
+  onReview: (draftId: string) => void;
 }) {
   const [kind, setKind] = useState("all");
   const [project, setProject] = useState("all");
   const collection = state.collection;
-  const items = state.activity.filter(
-    (item) =>
-      (kind === "all" || item.kind === kind) &&
-      (project === "all" || item.projectId === project),
-  );
+  const activeProject =
+    kind === "draft_event" || !state.projects.some((p) => p.id === project)
+      ? "all"
+      : project;
+  const items = filterActivity(state.activity, kind, activeProject);
   return (
     <>
       <div className="page-intro">
@@ -161,8 +167,12 @@ export function ActivityView({
           </select>
         </label>
         <label>
-          Project
-          <select value={project} onChange={(e) => setProject(e.target.value)}>
+          Work project
+          <select
+            value={activeProject}
+            disabled={kind === "draft_event"}
+            onChange={(e) => setProject(e.target.value)}
+          >
             <option value="all">All projects</option>
             {state.projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -176,6 +186,18 @@ export function ActivityView({
           {state.activityHasMore ? " · latest 50 shown" : ""}
         </span>
       </div>
+      {kind === "draft_event" && (
+        <p className="fine-print">
+          Draft decisions are shown across projects. Project filters apply only
+          to collected work.
+        </p>
+      )}
+      {kind !== "draft_event" && activeProject !== "all" && (
+        <p className="fine-print">
+          Showing collected work for this project. Select Drafts &amp; decisions
+          to see review history across projects.
+        </p>
+      )}
       {items.length ? (
         <div className="timeline">
           {items.map((item) => (
@@ -196,7 +218,7 @@ export function ActivityView({
               </summary>
               <div className="event-body">
                 {item.summary && <p>{item.summary}</p>}
-                {item.kind === "activity" && (
+                {activityKind(item) === "activity" && (
                   <p className="fine-print">
                     {item.filesChanged ?? 0} files changed ·{" "}
                     {item.toolCalls ?? 0} tool calls. Summary reflects recorded
@@ -204,7 +226,10 @@ export function ActivityView({
                   </p>
                 )}
                 {item.draftId && (
-                  <Button variant="ghost" onClick={onReview}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => onReview(item.draftId!)}
+                  >
                     Open approvals <ChevronRight size={15} />
                   </Button>
                 )}
@@ -323,6 +348,7 @@ export function Settings({
   busy: boolean;
 }) {
   const [port, setPort] = useState(String(state.backendPort || 8000));
+  const portValid = /^\d+$/.test(port) && isLocalPort(Number(port));
   return (
     <>
       <div className="page-intro">
@@ -392,21 +418,30 @@ export function Settings({
             value={port}
             onChange={(e) => setPort(e.target.value)}
             placeholder="8000"
+            aria-invalid={!portValid}
+            aria-describedby="port-help"
           />
           <Button
-            disabled={busy || !/^\d+$/.test(port)}
+            disabled={busy || !portValid}
             onClick={() => onConnect(Number(port))}
           >
             <Link2 size={16} />
             Choose data folder
           </Button>
         </div>
+        <p className="fine-print" id="port-help">
+          Enter the running backend’s port, from 1024 to 65535.
+        </p>
         <p className="fine-print">
           Your existing service stays in charge. This UI does not restart it,
           change its credentials, or alter Slack permissions.
         </p>
         {state.mode === "local" && (
-          <Button variant="ghost" onClick={() => act({ type: "preview" })}>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => act({ type: "preview" })}
+          >
             Disconnect desktop & return to preview
           </Button>
         )}

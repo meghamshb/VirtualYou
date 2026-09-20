@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from virtual_you.backend.errors import ServiceError
 from virtual_you.backend.prompts import assemble_prompt
 from virtual_you.backend.providers import UNKNOWN
+from virtual_you.backend.reply_style import REPLY_WRITING_GUIDANCE, validate_reply_style
 from virtual_you.contracts.reporting import (
     SECTION_TITLES,
     DraftReport,
@@ -306,10 +307,10 @@ class DraftEngine:
             "evidence marked changed_since_delivery or not_previously_delivered. Do not repeat evidence marked "
             "previously_delivered unless needed to answer. Never describe something as new or changed without citing "
             "the marked current evidence. "
-            "Answer the actual question, including recorded changes, exact files/diffs, outcome, tests, "
+            "Answer the actual question using relevant recorded behavior changes, outcomes, tests, "
             "and explicitly recorded rationale when relevant. Distinguish requested edits from successful "
             "actions, session reports from independently verified results, historical from current state. "
-            "For current/latest questions, use the newest relevant records and state their date; never label a selected old match as the latest project state. "
+            "For current/latest questions, use the newest relevant records; mention dates only when needed to distinguish historical evidence. Never label a selected old match as the latest project state. "
             "Historical review recommendations are not current blockers or unfinished work. A PR review needs an identified PR and its recorded changes; if ambiguous, ask which PR and avoid inventing its current status. "
             "Do not generalize a particular test run into all tests passing or no failures. Git records do not verify deployment or test execution. "
             "Do not invent success, blockers, dates, promises, links or private reasoning. "
@@ -318,9 +319,8 @@ class DraftEngine:
             "Each factual paragraph needs citations selecting the evidence_id of sources that support it. "
             "Citations contain ONLY the short evidence_id labels (S1, S2, etc.) from the supplied evidence, never commit hashes or session IDs; the server attaches verbatim source excerpts. "
             "With no relevant facts, use exactly '" + UNKNOWN + "' and no citations. "
-            "For multi-part answers use short **bold labels** (e.g. Changes, Tests, Blockers) followed by brief bullet lines, with blank lines between sections. Use backticks for filenames and commit IDs. Only include sections supported by evidence; do not add empty headings or repeat facts. A simple answer needs no headings. Avoid tables, LaTeX, and dense prose. Respect recipient tone; at most one neutral informational emoji when appropriate, never imply success with an emoji unless evidenced. "
-            "Keep 1–3 short factual sections, total under 2200 characters. Describe only recorded changes. Do not conclude with predicted benefits, recommendations, or promises (for example should streamline, will improve, ensures robustness). No praise, performance judgments, or filler such as progressing well. Do not dump raw logs. "
-            "If the evidence misses the requested topic, you may set search_query to concise alternate "
+            + REPLY_WRITING_GUIDANCE
+            + "If the evidence misses the requested topic, you may set search_query to concise alternate "
             "keywords for ONE additional local search; otherwise search_query is empty. "
             "Schema: " + json.dumps(schema)
         )
@@ -394,18 +394,21 @@ class DraftEngine:
                         DraftReport(**{key: section for key in SECTION_TITLES}), evidence
                     )
                     resolved.append(section)
+                validate_reply_style("\n\n".join(p.text for p in resolved), question)
             except ServiceError as error:
                 if repairs or error.code not in {
                     "invalid_citation",
                     "unsupported_claim",
                     "invented_link",
+                    "reply_too_long",
+                    "reply_identifier_dump",
                 }:
                     raise
                 repairs += 1
                 feedback = (
                     "Previous draft failed "
                     + error.code
-                    + ". Regenerate using only supported facts. "
+                    + ": " + error.message + ". Regenerate using only supported facts. "
                     "Select only evidence_id values from the supplied sources that support the facts. "
                     "Do not invent references or links. Do not request another search."
                 )

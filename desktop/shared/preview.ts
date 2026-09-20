@@ -155,6 +155,8 @@ export function transition(input: Workspace, raw: Action): Workspace {
         });
         state.activity.unshift({
           id: "sample-event",
+          kind: "draft_event",
+          draftId: "sample-1",
           title: "Sample evidence indexed and draft prepared",
           source: "Preview",
           at: now,
@@ -174,6 +176,8 @@ export function transition(input: Workspace, raw: Action): Workspace {
       draft.status = action.action === "approve" ? "simulated" : "rejected";
       state.activity.unshift({
         id: `decision-${now}`,
+        kind: "draft_event",
+        draftId: draft.id,
         title:
           action.action === "approve"
             ? "Sample approved — no message sent"

@@ -108,6 +108,69 @@ files are not portable. Follow [the Slack workflow setup](../slack_agent/WORKFLO
 When connecting Electron to the Slack server, use its port (normally 3000) and
 its configured data directory. Jira/Drive authorization can be added afterward.
 
+## Read-only GitHub and Jira context
+
+For the real backend, set these in its private environment file (never commit tokens):
+
+```dotenv
+VIRTUAL_YOU_MCP_GITHUB=true
+VIRTUAL_YOU_GITHUB_REPO=owner/repository
+GITHUB_TOKEN=your_read_only_repository_token
+VIRTUAL_YOU_MCP_JIRA=true
+JIRA_BASE_URL=https://your-team.atlassian.net
+JIRA_EMAIL=your-account@example.com
+JIRA_API_TOKEN=your_jira_api_token
+```
+
+GitHub can also use the existing local OAuth token store. Credential presence means
+**configured**, not verified access. Grant read access to the intended repository,
+pull requests, reviews and checks. The connector uses GET requests only.
+
+The ingestion source list selected by `VIRTUAL_YOU_INGESTION_CONFIG` links each
+activity directory to a project. GitHub enrichment requires that project's local
+`origin` to match `VIRTUAL_YOU_GITHUB_REPO`, or an explicit `github_repo` on the
+source entry:
+
+```json
+[
+  {
+    "source": "git",
+    "path": "/absolute/path/to/checkout",
+    "workspace": "/absolute/path/to/checkout",
+    "project": "my-project",
+    "github_repo": "owner/repository"
+  }
+]
+```
+
+Conflicting repository declarations within a project are rejected for enrichment.
+Unscoped feeds and other projects never borrow a global GitHub observation store.
+Jira reads only explicit issue keys in activity prompts or Git commit messages,
+up to three per record; it does not import a board. A project display name is not
+an issue key. Without an actual issue reference, a configured Jira connection can
+correctly report zero lookups.
+
+Refresh enriches existing normalized records even when Git HEAD has not changed.
+Automatic refresh caches remote results for 120 seconds. The authenticated
+`POST /api/refresh` bypasses that cache. Each run prioritizes recent work, permits
+at most ten unique GitHub commit snapshots and ten named Jira issue lookups, and
+stops starting requests after a 20-second remote-work budget (an in-flight bounded
+snapshot may finish afterward). Older work can be deferred; expired or unavailable
+facts become `UNKNOWN`, rather than retaining verified PR/CI/Jira claims.
+Partial GitHub responses also count as unavailable. Turning a connector off or
+removing its project scope removes its remote facts on the next refresh.
+
+Inspect `enrichment` in the refresh response, or `heartbeat.enrichment` in
+`GET /api/status`, for `lookups`, `cached`, `failed`, `deferred` and
+`records_enriched` per integration. Safe collection errors distinguish missing
+configuration/scope from failed lookups. These counts do not prove Slack delivery.
+
+Evidence remains attached to the original redacted ActivityRecord as `github.*`
+and `jira.*` tool calls. Keep that original source (for example **Git** or
+**Voice**) enabled in the recipient's context sources. Selecting only the standalone
+**GitHub** or **Jira** source kind does not select enriched Git/voice records.
+Project access restrictions continue to apply to the entire record.
+
 ## Troubleshooting
 
 | Symptom | Check |

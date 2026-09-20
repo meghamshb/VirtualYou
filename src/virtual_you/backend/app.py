@@ -277,7 +277,7 @@ def create_app(settings=None, *, provider=None, transport=None, transcriber=None
 
     @api.post("/refresh")
     async def refresh():
-        return await app.state.heartbeat.refresh()
+        return await app.state.heartbeat.refresh(force_integrations=True)
 
     @api.get("/activity")
     def recent_activity(limit: int = Query(default=50, ge=1, le=100)):

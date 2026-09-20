@@ -1,4 +1,4 @@
-import { Check, ExternalLink } from "lucide-react";
+import { Check, ExternalLink, Settings2 } from "lucide-react";
 import { Brand, Button } from "./ui";
 import type { Integration, ProviderId } from "../../shared/model";
 export const providers: Record<
@@ -21,7 +21,7 @@ export const providers: Record<
     name: "Jira",
     description: "Keep tasks and blockers in the picture.",
     permission:
-      "Read issues and project updates from your selected Jira projects.",
+      "Read named Jira issues referenced in your collected work. This does not import an entire board.",
   },
   drive: {
     name: "Google Drive",
@@ -55,10 +55,30 @@ export function IntegrationList({
             </div>
             {item.state === "connected" || item.state === "configured" ? (
               <div className="connected-actions">
-                <span className="connected">
-                  <Check size={15} />{" "}
+                <span
+                  className={
+                    item.state === "configured"
+                      ? "configuration-state"
+                      : "connected"
+                  }
+                >
+                  {item.state === "configured" ? (
+                    <Settings2 size={15} />
+                  ) : (
+                    <Check size={15} />
+                  )}{" "}
                   {item.state === "configured" ? "Configured" : "Connected"}
                 </span>
+                {item.state === "configured" && (
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => onConnect(item.id)}
+                    aria-label={`View ${provider.name} setup`}
+                  >
+                    Details
+                  </Button>
+                )}
                 {onDisconnect && (
                   <Button
                     variant="ghost"

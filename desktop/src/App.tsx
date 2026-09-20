@@ -51,6 +51,7 @@ type Dialog =
 export default function App() {
   const [state, setState] = useState<Workspace>(freshWorkspace);
   const [view, setView] = useState<View>("setup");
+  const [reviewDraftId, setReviewDraftId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
@@ -183,6 +184,7 @@ export default function App() {
         return (
           <Approvals
             state={state}
+            initialDraftId={reviewDraftId}
             onSample={() => act({ type: "sample" })}
             onRefresh={() => void run(() => bridge.snapshot())}
             onDecision={(draft, approve) =>
@@ -198,7 +200,10 @@ export default function App() {
             busy={busy}
             onRefresh={() => void run(() => bridge.snapshot())}
             onCollect={() => act({ type: "refresh" })}
-            onReview={() => setView("approvals")}
+            onReview={(draftId) => {
+              setReviewDraftId(draftId);
+              setView("approvals");
+            }}
           />
         );
       case "diagnostics":

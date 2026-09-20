@@ -49,15 +49,25 @@ class Experience:
         heartbeat = self.backend.store.metadata("heartbeat") or {}
         preferences = self.preferences()
         return (
-            f"Model: {self.backend.settings.provider} {self.backend.settings.model}. "
-            f"Activity refresh: {heartbeat.get('state', 'starting')}. "
-            f"Indexed activities: {self.backend.retrieval.stats()['count']}. "
-            f"Enabled sources: {', '.join(preferences['sources']) or 'none'}. "
-            f"Drafting: {'paused' if preferences.get('paused') else 'running'}."
+            f"Activity: {heartbeat.get('state', 'starting')} · {self.backend.retrieval.stats()['count']} indexed records\n"
+            f"Sources allowed in drafts: {', '.join(preferences['sources']) or 'none'}\n"
+            f"Drafting: {'paused' if preferences.get('paused') else 'running'} · Model: {self.backend.settings.provider} {self.backend.settings.model}"
             + (" All personal DMs enabled; sender-specific styles; approval required."
                if getattr(getattr(self, "dm_replies", None), "all_personal_dms", False)
                else " Personal DM listener enabled; replies require approval." if getattr(self, "dm_replies", None) else "")
         )
+
+    def integration_status_summary(self):
+        from virtual_you.backend.activity_feed import integration_summary
+
+        integrations = integration_summary(self.backend.settings, self.backend)
+        lines = ["Optional work integrations"]
+        for key, label in (("github", "GitHub"), ("jira", "Jira"), ("drive", "Drive")):
+            value = integrations[key]
+            state = ("configured · enabled" if value.get("enabled") else "configured · disabled") if value.get("status") == "configured" else "not configured"
+            lines.append(f"{label}: {state}")
+        lines.append("Configuration is not a live connection test. Manage credentials in the local backend configuration; never paste them into Slack.")
+        return "\n".join(lines)
 
     def apply_experience(self, job):
         data = job["payload"]

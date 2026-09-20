@@ -1,6 +1,9 @@
 import { z } from "zod";
 export const providerIds = ["slack", "github", "jira", "drive"] as const;
 export type ProviderId = (typeof providerIds)[number];
+export function isLocalPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1024 && port <= 65535;
+}
 export type View =
   | "setup"
   | "integrations"

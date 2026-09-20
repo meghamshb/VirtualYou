@@ -9,7 +9,7 @@ from virtual_you.ingest.redact import redact_text
 
 from .config import Credentials, SlackSettings, private_installation_store
 from .runtime import HeadlessRuntime
-from .views import edit_modal, plain, reconcile_modal, selection_modal
+from .views import draft_blocks, edit_modal, plain, reconcile_modal, selection_modal
 
 
 def event_key(body, suffix=""):
@@ -146,6 +146,19 @@ def register(app, coordinator=None):
         ack()
         if is_owner(body):
             client.views_open(trigger_id=body["trigger_id"], view=edit_modal(owned_draft(body)))
+
+    @app.action("vy_view_report")
+    def view_report(ack, body, client):
+        ack()
+        if not is_owner(body):
+            return
+        draft = owned_draft(body)
+        link = coordinator.state.draft_link(draft["id"])
+        person = coordinator.state.recipient(link["recipient"])
+        client.views_open(trigger_id=body["trigger_id"], view={
+            "type": "modal", "title": plain("Work update"), "close": plain("Close"),
+            "blocks": [block for block in draft_blocks(draft, person.get("name", person["recipient"]), coordinator.backend.settings.live_delivery) if block["type"] != "actions"],
+        })
 
     @app.action("vy_reconcile")
     def reconcile(ack, body, client):

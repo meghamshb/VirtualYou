@@ -1,4 +1,23 @@
-import type { Collection } from "./model";
+import type { Activity, Collection } from "./model";
+
+export function activityKind(item: Activity): "activity" | "draft_event" {
+  // Older saved previews predate the event-kind field.
+  return item.kind || (item.source === "Preview" ? "draft_event" : "activity");
+}
+
+export function filterActivity(
+  items: Activity[],
+  kind: string,
+  project: string,
+): Activity[] {
+  return items.filter(
+    (item) =>
+      (kind === "all" || activityKind(item) === kind) &&
+      (project === "all" ||
+        kind === "draft_event" ||
+        item.projectId === project),
+  );
+}
 
 export function collectionLabel(collection: Collection | null): string {
   if (!collection) return "Not checked";
