@@ -1,4 +1,4 @@
-"""Slack group controls and explicit message shortcut; owner-only policy changes."""
+"""Slack group controls for owner mentions and shortcuts; owner-only policy changes."""
 
 import json
 
@@ -28,7 +28,12 @@ def group_reason(reason):
 def group_blocks(groups):
     blocks = [
         section(
-            "Group conversations: tag the owner with a question, or use Ask a VirtualYou. Replies appear as the owner, labelled VirtualYou. Each conversation has its own audience scope."
+            "Group conversations: a colleague tags the owner with a question, or uses Ask a VirtualYou. "
+            "Each conversation has its own audience scope. "
+            + ("Live replies appear in the original thread as the owner, labelled VirtualYou. "
+               "Approval is required unless the owner explicitly enabled automatic replies for that conversation."
+               if groups.live_delivery else
+               "Simulation mode: group replies are prepared, but even an approved reply sends nothing to the channel.")
         ),
         {
             "type": "actions",
@@ -82,7 +87,7 @@ def group_blocks(groups):
                 {
                     "type": "actions",
                     "elements": [
-                        button("Approve group reply", "vy_group_send", request["id"]),
+                        button("Approve group reply" if groups.live_delivery else "Approve simulation", "vy_group_send", request["id"]),
                         button("Reject", "vy_group_reject", request["id"]),
                     ],
                 }

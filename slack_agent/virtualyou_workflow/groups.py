@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import html
 import json
+import os
 import re
 import threading
 import time
@@ -41,6 +42,10 @@ AUTO_REVIEW_SYSTEM = (
 class GroupConversations:
     def __init__(self, coordinator):
         self.c = coordinator
+        mode = os.getenv("VIRTUAL_YOU_GROUP_LIVE_DELIVERY")
+        if mode is not None and mode.lower() not in {"true", "false", "1", "0"}:
+            raise ValueError("VIRTUAL_YOU_GROUP_LIVE_DELIVERY must be true, false, 1, or 0")
+        self._live_delivery_override = None if mode is None else mode.lower() in {"true", "1"}
         self.lock = threading.RLock()
         with self.c.backend.store.connection(write=True) as db:
             db.executescript("""
@@ -57,6 +62,13 @@ class GroupConversations:
                         "UPDATE group_requests SET payload=? WHERE id=?",
                         (json.dumps(value), value["id"]),
                     )
+
+    @property
+    def live_delivery(self):
+        """Independent group transport mode; it never grants approval to send."""
+        if self._live_delivery_override is None:
+            return self.c.backend.settings.live_delivery
+        return self._live_delivery_override
 
     def audit(self, db, event, data):
         db.execute(
@@ -603,7 +615,7 @@ class GroupConversations:
             "the commit hash or describe the change you mean."
         )
         outcome, receipt = "simulated", None
-        if self.c.backend.settings.live_delivery:
+        if self.live_delivery:
             try:
                 response = client.chat_postMessage(
                     channel=value["channel"],
@@ -684,7 +696,7 @@ class GroupConversations:
             )
             db.execute("UPDATE group_requests SET payload=? WHERE id=?", (json.dumps(value), key))
             self.audit(db, "dispatch_claimed", value)
-        if not self.c.backend.settings.live_delivery:
+        if not self.live_delivery:
             value["state"] = "simulated"
         else:
             try:

@@ -614,3 +614,59 @@ def test_repeated_review_rejection_stops_after_one_revision(group):
     assert sum(task == 'group_auto_review' for task, data in prompts) == 2
     assert g.get(key)['state'] == 'pending'
     assert not calls
+
+
+@pytest.mark.parametrize('group_mode,report_live,expected', [
+    ('true', False, 'sent'),
+    ('false', True, 'simulated'),
+])
+def test_group_delivery_override_preserves_separate_report_mode_and_approval(group, monkeypatch, group_mode, report_live, expected):
+    from virtualyou_workflow.group_views import group_blocks
+    old, slack, calls, _, _ = group
+    monkeypatch.setenv('VIRTUAL_YOU_GROUP_LIVE_DELIVERY', group_mode)
+    old.c.backend.settings.live_delivery = report_live
+    g = GroupConversations(old.c)
+    g.c.groups = g
+    configure(g, automatic=False)
+    key = question(g)
+    asyncio.run(g.prepare(key))
+    assert g.get(key)['state'] == 'pending' and not calls
+    rendered = json.dumps(group_blocks(g))
+    assert ('Simulation mode' in rendered) is (group_mode == 'false')
+    assert ('Live replies appear in the original thread' in rendered) is (group_mode == 'true')
+    asyncio.run(g.send(key, actor='UOWNER'))
+    assert g.get(key)['state'] == expected
+    assert g.c.backend.settings.live_delivery is report_live
+    assert len(calls) == (1 if group_mode == 'true' else 0)
+    if calls:
+        assert calls[0]['thread_ts'] == '100.0'
+
+
+def test_group_mode_defaults_to_report_mode_and_rejects_invalid_override(group, monkeypatch):
+    g, *_ = group
+    monkeypatch.delenv('VIRTUAL_YOU_GROUP_LIVE_DELIVERY', raising=False)
+    current = GroupConversations(g.c)
+    for live in (False, True):
+        g.c.backend.settings.live_delivery = live
+        assert current.live_delivery is live
+    monkeypatch.setenv('VIRTUAL_YOU_GROUP_LIVE_DELIVERY', 'sometimes')
+    with pytest.raises(ValueError, match='VIRTUAL_YOU_GROUP_LIVE_DELIVERY'):
+        GroupConversations(g.c)
+
+
+@pytest.mark.parametrize('group_live,report_live', [('true', False), ('false', True)])
+def test_group_review_notice_uses_group_transport_override(group, monkeypatch, group_live, report_live):
+    old, _, calls, _, model = group
+    monkeypatch.setenv('VIRTUAL_YOU_GROUP_LIVE_DELIVERY', group_live)
+    old.c.backend.settings.live_delivery = report_live
+    g = GroupConversations(old.c)
+    g.c.groups = g
+    configure(g, automatic=True)
+    model.eligible = False
+    key = g.receive_mention(dict(channel_type='channel', channel='CTEST', user='UASKER',
+        ts='100.1', text='<@UOWNER> What is the status?'), 'TTEAM')
+    asyncio.run(g.prepare(key))
+    assert g.get(key)['state'] == 'pending'
+    assert g.get(key)['notice_state'] == ('sent' if group_live == 'true' else 'simulated')
+    assert len(calls) == (1 if group_live == 'true' else 0)
+    assert g.c.backend.settings.live_delivery is report_live

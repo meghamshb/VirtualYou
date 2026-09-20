@@ -4,6 +4,10 @@ import re
 
 from virtual_you.backend.errors import ServiceError
 
+FULL_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b", re.I)
+# Preserve source links byte-for-byte, including Markdown and Slack link targets.
+URL_RE = re.compile(r"https?://[^\s<>\"\)\]\|]+", re.I)
+
 REPLY_WRITING_GUIDANCE = (
     "Write for a teammate who wants the meaning of the work, not a Git log. "
     "Answer first with the most relevant recorded outcome in plain English. "
@@ -54,8 +58,31 @@ def detailed_reply_requested(question):
     )
 
 
+def full_hash_requested(question):
+    return bool(
+        re.search(
+            r"\b(?:sha(?:-?1)?|hash(?:es)?|full (?:commit|revision|id)|exact (?:commit|revision|id))\b",
+            question,
+            re.I,
+        )
+    ) or bool(FULL_SHA_RE.search(question))
+
+
+def normalize_reply_style(text, question):
+    """Shorten prose commit IDs before review; never change links, facts or citations."""
+    if full_hash_requested(question):
+        return text
+    pieces, start = [], 0
+    for link in URL_RE.finditer(text):
+        pieces.append(FULL_SHA_RE.sub(lambda match: match[0][:7], text[start:link.start()]))
+        pieces.append(link[0])
+        start = link.end()
+    pieces.append(FULL_SHA_RE.sub(lambda match: match[0][:7], text[start:]))
+    return "".join(pieces)
+
+
 def validate_reply_style(text, question):
-    """Request one rewrite rather than deleting facts or abbreviating after approval."""
+    """Validate the review candidate after deterministic presentation normalization."""
     limit = 2400 if detailed_reply_requested(question) else 1200
     if len(text) > limit:
         raise ServiceError(
@@ -64,15 +91,8 @@ def validate_reply_style(text, question):
             "Group related changes into short outcome-led bullets; omit duplicate history and implementation trivia.",
             502,
         )
-    full_hash = re.search(r"\b[0-9a-f]{40}\b", text, re.I)
-    wants_full_hash = bool(
-        re.search(
-            r"\b(?:sha(?:-?1)?|hash(?:es)?|full (?:commit|revision|id)|exact (?:commit|revision|id))\b",
-            question,
-            re.I,
-        )
-    ) or bool(re.search(r"\b[0-9a-f]{40}\b", question, re.I))
-    if full_hash and not wants_full_hash:
+    full_hash = FULL_SHA_RE.search(URL_RE.sub("", text))
+    if full_hash and not full_hash_requested(question):
         raise ServiceError(
             "reply_identifier_dump",
             "Explain the supported change in plain language. Remove full commit hashes from the prose; "

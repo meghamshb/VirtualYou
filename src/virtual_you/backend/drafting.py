@@ -11,7 +11,11 @@ from pydantic import ValidationError
 from virtual_you.backend.errors import ServiceError
 from virtual_you.backend.prompts import assemble_prompt
 from virtual_you.backend.providers import UNKNOWN
-from virtual_you.backend.reply_style import REPLY_WRITING_GUIDANCE, validate_reply_style
+from virtual_you.backend.reply_style import (
+    REPLY_WRITING_GUIDANCE,
+    normalize_reply_style,
+    validate_reply_style,
+)
 from virtual_you.contracts.reporting import (
     SECTION_TITLES,
     DraftReport,
@@ -393,6 +397,11 @@ class DraftEngine:
                     self.validate_grounding(
                         DraftReport(**{key: section for key in SECTION_TITLES}), evidence
                     )
+                    # This deterministic prose-only transformation happens before review.
+                    # Original full hashes remain in exact citations and source URLs.
+                    section = section.model_copy(update={
+                        "text": normalize_reply_style(section.text, question),
+                    })
                     resolved.append(section)
                 validate_reply_style("\n\n".join(p.text for p in resolved), question)
             except ServiceError as error:

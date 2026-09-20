@@ -238,3 +238,21 @@ Block Kit content (excluding Slack-added block IDs/default emoji flags).
   checks pass. Backend tests now isolate optional connector flags and prevent CLI
   tests from loading the operator's live `.env`. Native-console inspection and
   screen-reader playback were not performed.
+
+
+## Latest-commit DM recovery and channel enablement
+
+Two real incoming latest-commit questions were received but escalated with
+`reply_identifier_dump`: the presentation rule rejected a full commit ID even
+when the answer was grounded. Bare IDs now shorten before review; explicit full
+hash requests, source URLs and full citation excerpts are preserved. The latest
+failed request was safely requeued once, regenerated, and reached pending owner
+review. It has not been approved or sent by this follow-up; the earlier duplicate
+remains recorded as an escalation.
+
+Native Slack enabled `#all-test` for project `virtualyou`, Git sources and concise
+bullets, with owner approval. Independent group transport is live, while work
+reports remain simulated. Channel replies use the original question's thread
+parent. No colleague message or channel reply was sent by this follow-up; a new
+colleague mention and approved thread delivery still need live acceptance.
+Combined backend/Slack regression tests passed **590** at this checkpoint.
