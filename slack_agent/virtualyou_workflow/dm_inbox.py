@@ -6,12 +6,13 @@ import logging
 import os
 import time
 from decimal import Decimal
-from slack_sdk.errors import SlackApiError
 
+from slack_sdk.errors import SlackApiError
 from virtual_you.backend.errors import ServiceError
 from virtual_you.ingest.redact import redact_text
-from .dm_replies import DMReplies
-from .history import slack_call, RetryLater
+
+from .dm_replies import DMReplies, incoming_audio_ids
+from .history import RetryLater, slack_call
 
 
 class DMInbox:
@@ -53,15 +54,20 @@ class DMInbox:
         if team_id != self.c.config.team_id or self.c.preferences().get('paused'):
             return
         if (event.get('channel_type') != 'im' or event.get('user') == self.c.config.owner_id
-                or not event.get('user') or event.get('bot_id') or event.get('subtype')):
+                or not event.get('user') or event.get('bot_id') or event.get('subtype') not in (None, '', 'file_share')):
             return
         if Decimal(event.get('ts', '0')) <= Decimal(self.activated):
             return
         text = redact_text(event.get('text', '')).strip()[:4000]
-        if not text or not event.get('channel'):
+        audio_ids = incoming_audio_ids(event)
+        if event.get('files') and not audio_ids:
+            return
+        if (not text and not audio_ids) or not event.get('channel'):
             return
         payload = {key: event[key] for key in ('user', 'channel', 'ts', 'thread_ts') if key in event}
         payload.update(text=text, channel_type='im')
+        if audio_ids:
+            payload['files'] = [{'id': audio_ids[0], 'mimetype': 'audio/pending-verification'}]
         key = hashlib.sha256((payload['channel'] + ':' + payload['ts']).encode()).hexdigest()
         with self.c.backend.store.connection(write=True) as db:
             db.execute('INSERT OR IGNORE INTO slack_dm_inbox VALUES(?,?,?,?,NULL)',

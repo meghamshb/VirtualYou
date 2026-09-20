@@ -46,7 +46,8 @@
         "groups:read",
         "groups:history",
         "mpim:read",
-        "mpim:history"
+        "mpim:history",
+        "files:read"
       ],
       "bot": [
         "app_mentions:read",

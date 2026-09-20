@@ -19,7 +19,7 @@ messages from follow-up context, kept replay from extending topic retention, and
 made successful-delivery state and context persistence atomic. Judgment questions
 still escalate, and factual answers still require scoped activity evidence.
 
-Current verification: **609 combined backend/ingestion/hosted and Slack workflow
+Current verification: **659 combined backend/ingestion/hosted and Slack workflow
 tests passed**. Regression coverage includes ordering, ambiguity, approval,
 redaction, thread isolation, three-day expiry, restart, delivered/changed evidence
 and uncertain delivery. Scoped lint and whitespace checks passed. Slack calls in
@@ -62,6 +62,8 @@ index, and expanding an entry loads bounded, authenticated context. This verifie
 collection, not that any particular model answer used every captured item. Claude
 has no real project session yet. Named Jira keys in captured context can still
 fail lookup; those warnings remain visible independently of successful parsing.
+
+Incoming colleague audio questions now reuse transcription and the grounded personal-DM reply flow, with owner approval and no work-activity ingestion of the question. Slack user file access is authorized locally; real incoming-audio acceptance is pending. The fresh channel question has now completed owner-approved threaded delivery in native Slack.
 
 The notes below are historical Member 2/4 milestones; their branch names and
 acceptance counts are not the current integration result.

@@ -4,8 +4,10 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from decimal import Decimal
+from pathlib import PurePath
 
 from virtual_you.backend.errors import ServiceError
 from virtual_you.ingest.redact import redact_text
@@ -26,6 +28,20 @@ from .formatting import (
 )
 from .history import RetryLater, slack_call
 from .views import plain
+
+
+def incoming_audio_ids(message):
+    """Admission hints only; the worker verifies Slack metadata and decoded audio."""
+    files = message.get('files') or []
+    if len(files) != 1 or not isinstance(files[0], dict):
+        return []
+    item = files[0]
+    audio = (str(item.get('mimetype', '')).startswith('audio/')
+             or PurePath(str(item.get('name', ''))).suffix.lower() in
+             {'.wav', '.mp3', '.m4a', '.ogg', '.oga', '.opus', '.webm', '.aac', '.aiff', '.aif', '.flac'}
+             or item.get('subtype') == 'slack_audio'
+             or item.get('audio_display_type') == 'waveform')
+    return [item['id']] if audio and re.fullmatch(r'F[A-Z0-9]+', str(item.get('id', ''))) else []
 
 
 class DMReplies:
@@ -58,7 +74,10 @@ class DMReplies:
                                      ('policy', "TEXT NOT NULL DEFAULT ''"),
                                      ('original_reply', 'TEXT'), ('edit_kind', 'TEXT'),
                                      ('edit_revision', 'INTEGER NOT NULL DEFAULT 0'),
-                                     ('thread_ts', "TEXT NOT NULL DEFAULT ''")]:
+                                     ('thread_ts', "TEXT NOT NULL DEFAULT ''"),
+                                     ('audio_file_ids', "TEXT NOT NULL DEFAULT '[]'"),
+                                     ('audio_transcribed', 'INTEGER NOT NULL DEFAULT 0'),
+                                     ('audio_error', 'TEXT')]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE slack_dm_replies ADD COLUMN {name} {definition}')
             # Never replay an interrupted send: it may already have reached Slack.
@@ -86,7 +105,7 @@ class DMReplies:
             self._insert(db, person['human_channel'], event)
 
     def _incoming_text(self, channel, message):
-        if message.get('user') != self.recipient or message.get('bot_id') or message.get('subtype'):
+        if message.get('user') != self.recipient or message.get('bot_id') or message.get('subtype') not in (None, '', 'file_share'):
             return None
         # Owner-authored outbound messages never become ordinary colleague requests.
         # The explicit self-test subclass has its own channel/prefix filter.
@@ -96,14 +115,17 @@ class DMReplies:
 
     def _insert(self, db, channel, message):
         content = self._incoming_text(channel, message)
-        if not content or not message.get('ts'):
+        audio_ids = incoming_audio_ids(message) if content is not None else []
+        if message.get('files') and not audio_ids:
+            return  # Do not answer a caption while silently ignoring its attachment.
+        if (not content and not audio_ids) or not message.get('ts'):
             return
         ts = message['ts']
         identity = hashlib.sha256((channel + ':' + ts).encode()).hexdigest()
         inserted = db.execute(
             '''INSERT OR IGNORE INTO slack_dm_replies(
-                id,recipient,channel,source_ts,prompt,state,send_as,received_at,thread_ts
-            ) VALUES(?,?,?,?,?,?,?,?,?)''',
+                id,recipient,channel,source_ts,prompt,state,send_as,received_at,thread_ts,audio_file_ids
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)''',
             (
                 identity,
                 self.recipient,
@@ -114,9 +136,10 @@ class DMReplies:
                 self.send_as,
                 time.time(),
                 message.get('thread_ts') or '',
+                json.dumps(audio_ids),
             ),
         ).rowcount
-        if not inserted:
+        if not inserted or audio_ids:
             return
         # Conversation context is short-lived. It resolves references and
         # records successful delivery snapshots, never factual work evidence.
@@ -203,7 +226,7 @@ class DMReplies:
         blocks += [card_fields(**{
             "Sends as": "Your Slack account" if as_user else "VirtualYou bot",
             "Destination": "Original personal DM" if as_user else "Recipient's bot DM",
-        }), {'type': 'section', 'text': plain('Incoming question\n' + row['prompt'][:2000])},
+        }), {'type': 'section', 'text': plain(('Incoming voice question · transcribed; check accuracy\n' if row.get('audio_transcribed') else 'Incoming question\n') + row['prompt'][:2000])},
             {'type': 'divider'},
         ]
         blocks += delivered_reply_blocks(row['reply'] or 'Preparing reply…')
@@ -272,6 +295,35 @@ class DMReplies:
             from virtual_you.backend.persona import PersonaService
             profile = {'style': PersonaService.formal_style().model_dump()}
             style_source = 'formal fallback — fewer than 10 outgoing messages; profile awaiting review'
+        if row['state'] == 'queued' and json.loads(row.get('audio_file_ids') or '[]') and not row.get('audio_transcribed'):
+            if 'voice' not in self.c.preferences().get('sources', []):
+                return
+            try:
+                from .incoming_audio import transcribe_incoming_audio
+                transcript = await transcribe_incoming_audio(self.c, row, json.loads(row['audio_file_ids']))
+                question = redact_text(((row['prompt'] + '\n\n') if row['prompt'] else '') + transcript).strip()[:4000]
+                if not question:
+                    raise ServiceError('no_speech', 'No clear speech was detected.')
+                with self.c.backend.store.connection(write=True) as db:
+                    db.execute("UPDATE slack_dm_replies SET prompt=?,audio_transcribed=1 WHERE id=?", (question, row['id']))
+                    self.context.record_turn(
+                        conversation=conversation_id(row['channel'], row.get('thread_ts')),
+                        message_ts=row['source_ts'], participant_id=self.recipient,
+                        role='colleague', text=question, db=db)
+                row.update(prompt=question, audio_transcribed=1)
+            except Exception as error:
+                code = error.code if isinstance(error, ServiceError) else 'transcription_failed'
+                with self.c.backend.store.connection(write=True) as db:
+                    db.execute("UPDATE slack_dm_replies SET state='transcription_failed',audio_error=? WHERE id=?", (code, row['id']))
+                client = self.c.bot()
+                destination = await asyncio.to_thread(slack_call, client.conversations_open, users=self.c.config.owner_id)
+                await asyncio.to_thread(slack_call, client.chat_postMessage,
+                    channel=destination['channel']['id'],
+                    text='VirtualYou could not transcribe an incoming voice question (' + code + '). No reply was sent. Check audio access and send a fresh clip to retry.')
+                return
+            # A pause while transcription was running must prevent drafting/notification.
+            if self.c.preferences().get('paused'):
+                return
         if row['state'] == 'queued':
             try:
                 started = time.monotonic()

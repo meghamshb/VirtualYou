@@ -95,6 +95,26 @@ persist audio files. Corrected transcripts are stored locally as private state.
 
 ## Synchronization and failure behavior
 
+### Incoming colleague voice questions
+
+The personal-DM listener also accepts one audio attachment from a colleague.
+Enable Voice in source settings and reconnect Slack after adding user-level
+`files:read` (the bot's file permission alone cannot read a human-to-human DM).
+The worker verifies the owner's identity, DM participant, file uploader and
+channel membership before downloading a bounded recording. The configured local
+or ElevenLabs transcriber produces question text; **it does not create an
+ActivityRecord or treat the colleague's speech as your work evidence**.
+
+The normal grounded-reply engine then prepares an owner review card labelled
+as a transcribed voice question. Check transcript accuracy and the answer before
+approving the exact reply. Delivery stays in the original personal DM/thread.
+Audio failures notify the owner and send no answer to the colleague. To retry a
+failed transcription, send a fresh clip. One clip per message, up to 8 MiB and
+three minutes, is supported; channel voice mentions and spoken replies are not
+part of this flow. Raw audio is processed in memory and is not saved locally.
+
+### Existing workflow safeguards
+
 - Stable upload/confirmation IDs prevent duplicate activities and drafts on retries.
 - Voice processing has a separate worker lane from Slack owner actions.
 - Independent questions use per-request locks; they do not wait behind a global

@@ -292,3 +292,21 @@ packaging checks**, scoped lint, desktop typecheck/build and diff checks pass.
 Native inspection also caught and fixed a status-badge CSS collision that inflated
 the empty Claude card. Ingestion evidence and a generated review card do not prove
 automatic semantic correctness or final external delivery.
+
+## Incoming voice questions follow-up
+
+A later native Slack inspection verified Megha's fresh five-line commit question
+had one owner-approved VirtualYou-labelled reply in its original `#all-test`
+thread. This completes that channel delivery check; the older recovered request
+remains a separate pending draft.
+
+Personal-DM audio now enters the question/reply flow, separately from owner voice
+memos. The owner authorized Slack's additional user-level `files:read` scope;
+OAuth reconnection succeeded and the saved scope plus live owner/workspace identity
+were verified. The local backend was restarted with this implementation.
+**659 combined Python tests pass**, including 50 incoming-audio/helper tests for
+sender/channel checks, bounded download, transcript redaction, duplicate events,
+pause/resume, failure handling and approval-only delivery. No incoming transcript
+is indexed as work evidence. A real colleague audio clip, transcription and final
+approved reply still need live acceptance; mocked tests and a permission grant
+are not proof of that entire path.
