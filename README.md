@@ -1,27 +1,11 @@
-## How it works
+# Virtual You
 
-**Capture → understand → draft → review → deliver**
+Your work leaves a trail. Your teammates shouldn't have to read the whole trail to know what happened.
 
-- **Capture:** local adapters read supported Claude Code, Cursor, Codex, Git, and voice-transcript sources. Optional read-only GitHub, Jira, and Drive enrichment adds project context when configured.
-- **Understand:** events are normalized into activity records. Secrets are redacted before records are stored or exposed to downstream features. Retrieval is scoped to the relevant project and recipient.
-- **Draft:** the backend can prepare a work report or answer a factual question from the available evidence, using a recipient profile for tone. It should surface uncertainty rather than inventing a status update.
-- **Review:** a person sees the draft, context, and approval decision in the desktop or web review flow. Slack workflows can present the same decision where the conversation is happening.
-- **Deliver:** live outbound messaging is opt-in and requires an explicit approval; the portable demo uses simulated delivery only.
+Virtual You turns work activity into updates and answers that sound like you — **but don't go out without you**. It gathers signals from coding sessions, Git, voice notes, and selected project integrations; redacts secrets before storing activity; then uses the relevant context to draft for a specific person or question. You review the result before anything is sent.
 
-Voice is one input, not an automatic send path: the app transcribes a recording through a configured speech provider or local Whisper option, lets the user correct the text, and then sends the normalized note through the same grounding and review process.
+I'm interested in the space between “AI wrote a summary” and “I'd actually trust this to speak for me.” That means grounding a claim in real work, keeping projects and recipients separate, and making approval a real step rather than a decorative button.
 
-## Try it safely
+Under the hood: Python/FastAPI for ingestion, retrieval, drafting, and review; Electron for the desktop app; Slack for in-conversation workflows. The local and integration paths work, while hosted distribution and some live-service acceptance are still in progress.
 
-The easiest starting point is the [local Mac demo guide](docs/LOCAL_SETUP.md). It uses synthetic activity and a simulated delivery, so you can explore the desktop app without connecting Slack, providing API keys, or importing your private work history. In short: start the isolated Python demo backend, launch the Electron app, then connect it to the local backend as the guide describes.
-
-`npm run dev` in `desktop/` is a browser **UI preview**, not a connected backend. Use the Electron flow in the guide to see live local activity and approvals. Keep the demo's private data folder and credentials out of Git.
-
-For a deeper look, see the [ingestion architecture](INGESTION_ARCHITECTURE.md), [integrated pipeline](docs/DEVELOP_INTEGRATION.md), [Slack workflow](slack_agent/WORKFLOW.md), and [desktop guide](desktop/README.md).
-
-## Project status
-
-This is a research prototype with working local ingestion, drafting, review, and integration paths. It is **not** a turnkey customer deployment: hosted setup, signed distribution, and parts of live integration acceptance still need work. The [integration audit](docs/LEO_INTEGRATION.md) and [current status](docs/STATUS.md) separate what has been implemented from what has been verified with real services.
-
-## License
-
-See [LICENSE](LICENSE).
+[how it fits together ↗](docs/DEVELOP_INTEGRATION.md) · [ingestion and redaction ↗](INGESTION_ARCHITECTURE.md) · [current status ↗](docs/STATUS.md) · [license ↗](LICENSE)
