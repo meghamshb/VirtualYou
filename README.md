@@ -1,9 +1,3 @@
-# Virtual You
-
-> An AI work companion that learns the context behind your updates — and still lets you decide what gets sent.
-
-Virtual You turns work activity into reviewable updates and grounded answers for people you collaborate with. It can collect signals from development work, voice notes, and selected integrations; organize them by project; draft in a recipient-appropriate style; and route the result through human approval. The goal is to make “what changed?” easier to answer without making an AI system speak for you unchecked.
-
 ## How it works
 
 **Capture → understand → draft → review → deliver**
